@@ -1,0 +1,113 @@
+{
+  "categories": [
+    {
+      "id": "1",
+      "name": "Food & Drinks",
+      "icon": "restaurant",
+      "color": "FF9800"
+    },
+    {
+      "id": "2",
+      "name": "Transport",
+      "icon": "directions_car",
+      "color": "2196F3"
+    },
+    {
+      "id": "3",
+      "name": "Shopping",
+      "icon": "shopping_bag",
+      "color": "E91E63"
+    },
+    {
+      "id": "4",
+      "name": "Bills",
+      "icon": "receipt_long",
+      "color": "F44336"
+    },
+    {
+      "id": "5",
+      "name": "Health",
+      "icon": "local_hospital",
+      "color": "4CAF50"
+    },
+    {
+      "id": "6",
+      "name": "Entertainment",
+      "icon": "movie",
+      "color": "9C27B0"
+    },
+    {
+      "id": "7",
+      "name": "Education",
+      "icon": "school",
+      "color": "009688"
+    },
+    {
+      "id": "8",
+      "name": "Salary",
+      "icon": "account_balance_wallet",
+      "color": "4CAF50"
+    },
+    {
+      "id": "9",
+      "name": "Freelance",
+      "icon": "computer",
+      "color": "3F51B5"
+    },
+    {
+      "id": "10",
+      "name": "Other",
+      "icon": "category",
+      "color": "9E9E9E"
+    }
+  ],
+  "tips": [
+    {
+      "id": "1",
+      "title": "50/30/20 Rule",
+      "description": "Spend 50% on needs, 30% on wants and save 20% of your income every month."
+    },
+    {
+      "id": "2",
+      "title": "Track Daily Spending",
+      "description": "Recording every expense, no matter how small, helps you spot bad spending habits quickly."
+    },
+    {
+      "id": "3",
+      "title": "Build an Emergency Fund",
+      "description": "Try to save at least 3 months of expenses as an emergency fund before investing."
+    },
+    {
+      "id": "4",
+      "title": "Avoid Impulse Buying",
+      "description": "Wait 24 hours before making any unplanned purchase above Rs. 1000."
+    },
+    {
+      "id": "5",
+      "title": "Review Monthly",
+      "description": "Set aside 10 minutes at the end of each month to review your spending patterns."
+    }
+  ],
+  "currencies": [
+    {
+      "code": "LKR",
+      "symbol": "Rs",
+      "name": "Sri Lankan Rupee"
+    },
+    {
+      "code": "USD",
+      "symbol": "$",
+      "name": "US Dollar"
+    },
+    {
+      "code": "EUR",
+      "symbol": "€",
+      "name": "Euro"
+    },
+    {
+      "code": "GBP",
+      "symbol": "£",
+      "name": "British Pound"
+    }
+  ]
+}

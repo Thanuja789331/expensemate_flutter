@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-import 'package:sensors_plus/sensors_plus.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/transaction_provider.dart';
 import '../../services/api_service.dart';
@@ -21,7 +20,6 @@ class _HomeScreenState extends State<HomeScreen> {
   final ApiService _apiService = ApiService();
   final DeviceService _deviceService = DeviceService();
 
-  int _batteryLevel = 0;
   bool _isOnline = true;
   List<Map<String, dynamic>> _tips = [];
   int _currentTipIndex = 0;
@@ -44,7 +42,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadData() async {
     final authProvider = context.read<AuthProvider>();
     final transactionProvider = context.read<TransactionProvider>();
-
     await transactionProvider.loadTransactions(authProvider.userId);
     await _loadTips();
   }
@@ -59,14 +56,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Init device features ─────────────────────────────────────
   Future<void> _initDeviceFeatures() async {
-    // Battery
-    final battery = await _deviceService.getBatteryLevel();
-    // Connectivity
     final online = await _deviceService.isOnline();
 
     if (mounted) {
       setState(() {
-        _batteryLevel = battery;
         _isOnline = online;
       });
     }
@@ -103,20 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // ── Get battery icon ─────────────────────────────────────────
-  IconData _getBatteryIcon() {
-    if (_batteryLevel > 80) return Icons.battery_full;
-    if (_batteryLevel > 50) return Icons.battery_5_bar;
-    if (_batteryLevel > 20) return Icons.battery_3_bar;
-    return Icons.battery_1_bar;
-  }
 
-  // ── Get battery color ────────────────────────────────────────
-  Color _getBatteryColor() {
-    if (_batteryLevel > 50) return Colors.green;
-    if (_batteryLevel > 20) return Colors.orange;
-    return Colors.red;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -155,6 +135,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+
+
                           // Greeting
                           Row(
                             mainAxisAlignment:
@@ -181,29 +163,19 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                 ],
                               ),
-                              // Device status
+                              // Device status — connectivity only
                               Row(
                                 children: [
                                   Icon(
-                                    _isOnline
-                                        ? Icons.wifi
-                                        : Icons.wifi_off,
-                                    color: _isOnline
-                                        ? Colors.white
-                                        : Colors.red[300],
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Icon(
-                                    _getBatteryIcon(),
-                                    color: _getBatteryColor(),
+                                    _isOnline ? Icons.wifi : Icons.wifi_off,
+                                    color: _isOnline ? Colors.white : Colors.red[300],
                                     size: 20,
                                   ),
                                   const SizedBox(width: 4),
                                   Text(
-                                    '$_batteryLevel%',
-                                    style: const TextStyle(
-                                      color: Colors.white,
+                                    _isOnline ? 'Online' : 'Offline',
+                                    style: TextStyle(
+                                      color: _isOnline ? Colors.white : Colors.red[300],
                                       fontSize: 12,
                                     ),
                                   ),
@@ -284,7 +256,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             amount: transactionProvider.totalIncome,
                             icon: Icons.arrow_downward,
                             color: AppTheme.incomeGreen,
-                          ).animate()
+                          )
+                              .animate()
                               .fadeIn(delay: 200.ms)
                               .slideX(begin: -0.2, end: 0),
                         ),
@@ -295,7 +268,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             amount: transactionProvider.totalExpense,
                             icon: Icons.arrow_upward,
                             color: AppTheme.expenseRed,
-                          ).animate()
+                          )
+                              .animate()
                               .fadeIn(delay: 300.ms)
                               .slideX(begin: 0.2, end: 0),
                         ),
@@ -311,6 +285,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
+
+                    // Row 1 — 3 buttons
                     Row(
                       children: [
                         Expanded(
@@ -344,7 +320,77 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 12),
+
+                    // Row 2 — Tips button only
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _QuickActionButton(
+                            icon: Icons.tips_and_updates,
+                            label: 'Tips',
+                            color: Colors.blue,
+                            onTap: () => context.go('/tips'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(child: SizedBox()),
+                        const SizedBox(width: 12),
+                        const Expanded(child: SizedBox()),
+                      ],
+                    ),
                     const SizedBox(height: 24),
+
+                    // ── Shake Hint Card ─────────────────────────────────────
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryGreen.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppTheme.primaryGreen.withOpacity(0.2),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Text('📳', style: TextStyle(fontSize: 20)),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Shake to Refresh',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: AppTheme.primaryGreen,
+                                  ),
+                                ),
+                                Text(
+                                  'Shake your phone to refresh transactions',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.grey[600],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            Icons.refresh,
+                            color: AppTheme.primaryGreen.withOpacity(0.5),
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                    ).animate().fadeIn(delay: 350.ms),
+
+                    const SizedBox(height: 16),
 
                     // ── Financial Tip ───────────────────────
                     if (_tips.isNotEmpty) ...[

@@ -4,6 +4,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../../providers/transaction_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../services/device_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -94,31 +95,84 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // ── Landscape Layout (Master/Detail) ─────────────────────────
   Widget _buildLandscapeLayout(BuildContext context) {
-    return Row(
+    return Column(
       children: [
-        // Master — menu list
-        SizedBox(
-          width: MediaQuery.of(context).size.width * 0.4,
-          child: Column(
+        // Compact header — just one line
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 8,
+          ),
+          color: Theme.of(context).colorScheme.primary,
+          child: Row(
             children: [
-              _buildProfileHeaderCompact(context),
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: Colors.white.withOpacity(0.3),
+                child: Text(
+                  context.read<AuthProvider>().userName.isNotEmpty
+                      ? context
+                      .read<AuthProvider>()
+                      .userName[0]
+                      .toUpperCase()
+                      : 'U',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               Expanded(
-                child: _buildMenuList(context, isPortrait: false),
+                child: Text(
+                  context.read<AuthProvider>().userName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                context.read<AuthProvider>().userEmail,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 11,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
         ),
-        const VerticalDivider(width: 1),
-        // Detail — content panel
+
+        // Master/Detail row
         Expanded(
-          child: _selectedIndex == null
-              ? _buildDetailPlaceholder()
-              : _buildDetailContent(context, _selectedIndex!),
+          child: Row(
+            children: [
+              // Master list
+              SizedBox(
+                width: MediaQuery.of(context).size.width * 0.32,
+                child: _buildMenuList(context, isPortrait: false),
+              ),
+              Container(
+                width: 1,
+                color: Colors.grey.withOpacity(0.2),
+              ),
+              // Detail panel
+              Expanded(
+                child: _selectedIndex == null
+                    ? _buildDetailPlaceholder()
+                    : _buildDetailContent(context, _selectedIndex!),
+              ),
+            ],
+          ),
         ),
       ],
     );
   }
-
   // ── Profile Header (Portrait) ────────────────────────────────
   Widget _buildProfileHeader(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
@@ -182,34 +236,35 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final theme = Theme.of(context);
 
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       color: theme.colorScheme.primary,
       child: Row(
         children: [
           CircleAvatar(
-            radius: 24,
+            radius: 20,
             backgroundColor: Colors.white.withOpacity(0.3),
             child: Text(
               authProvider.userName.isNotEmpty
                   ? authProvider.userName[0].toUpperCase()
                   : 'U',
               style: const TextStyle(
-                fontSize: 20,
+                fontSize: 16,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,
               ),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   authProvider.userName,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: FontWeight.bold,
                   ),
                   maxLines: 1,
@@ -219,7 +274,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   authProvider.userEmail,
                   style: const TextStyle(
                     color: Colors.white70,
-                    fontSize: 11,
+                    fontSize: 10,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -240,17 +295,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ? const NeverScrollableScrollPhysics()
           : const AlwaysScrollableScrollPhysics(),
       itemCount: _menuItems.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, __) =>
+          Divider(height: 1, color: Colors.grey.withOpacity(0.2)),
       itemBuilder: (context, index) {
         final item = _menuItems[index];
         final isSelected = _selectedIndex == index;
 
         return ListTile(
+          dense: !isPortrait,
           selected: isSelected && !isPortrait,
-          selectedTileColor:
-          AppTheme.primaryGreen.withOpacity(0.1),
+          selectedTileColor: AppTheme.primaryGreen.withOpacity(0.1),
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: isPortrait ? 16 : 12,
+            vertical: isPortrait ? 4 : 0,
+          ),
           leading: Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
               color: (item['color'] as Color).withOpacity(0.1),
               borderRadius: BorderRadius.circular(8),
@@ -258,24 +318,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: Icon(
               item['icon'] as IconData,
               color: item['color'] as Color,
-              size: 20,
+              size: isPortrait ? 20 : 18,
             ),
           ),
           title: Text(
             item['title'] as String,
-            style: const TextStyle(fontWeight: FontWeight.w600),
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: isPortrait ? 14 : 13,
+            ),
           ),
-          subtitle: Text(
+          subtitle: isPortrait
+              ? Text(
             item['subtitle'] as String,
             style: const TextStyle(fontSize: 12),
+          )
+              : null,
+          trailing: Icon(
+            Icons.chevron_right,
+            color: Colors.grey,
+            size: isPortrait ? 24 : 18,
           ),
-          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
           onTap: () {
             if (isPortrait) {
-              // Portrait — show dialog
               _showDetailDialog(context, index);
             } else {
-              // Landscape — show in detail panel
               setState(() => _selectedIndex = index);
             }
           },
@@ -292,22 +359,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
         children: [
           Icon(
             Icons.touch_app_outlined,
-            size: 64,
+            size: 48,
             color: Colors.grey[300],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Text(
-            'Select an item',
+            'Select a setting',
             style: TextStyle(
-              fontSize: 18,
+              fontSize: 16,
               color: Colors.grey[400],
+              fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
-            'Choose a setting from the left panel',
+            'Choose from the left panel',
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 12,
               color: Colors.grey[300],
             ),
           ),
@@ -315,7 +383,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
-
   // ── Detail Content ───────────────────────────────────────────
   Widget _buildDetailContent(BuildContext context, int index) {
     final item = _menuItems[index];
@@ -521,15 +588,145 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // ── Security Detail ──────────────────────────────────────────
   Widget _buildSecurityDetail() {
+    final themeProvider = context.watch<ThemeProvider>();
+    final deviceService = DeviceService();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _DetailItem(label: 'Authentication', value: 'Firebase Auth'),
+        _DetailItem(label: 'Authentication', value: 'Local Auth'),
         const SizedBox(height: 16),
         _DetailItem(label: 'Data Encryption', value: 'Enabled'),
         const SizedBox(height: 16),
-        _DetailItem(label: 'Local Storage', value: 'SQLite (Encrypted)'),
+        _DetailItem(label: 'Local Storage', value: 'SQLite'),
         const SizedBox(height: 24),
+
+        // Fingerprint toggle
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: AppTheme.primaryGreen.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: AppTheme.primaryGreen.withOpacity(0.2),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryGreen.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.fingerprint,
+                  color: AppTheme.primaryGreen,
+                  size: 28,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Fingerprint Lock',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    Text(
+                      themeProvider.fingerprintEnabled
+                          ? 'App is locked with fingerprint'
+                          : 'Tap to enable fingerprint lock',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: themeProvider.fingerprintEnabled,
+                activeColor: AppTheme.primaryGreen,
+                onChanged: (value) async {
+                  if (value) {
+                    // Check if biometric is available first
+                    final available =
+                    await deviceService.isBiometricAvailable();
+                    if (!available) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text(
+                              'Biometric not available on this device',
+                            ),
+                            backgroundColor: Colors.red,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        );
+                      }
+                      return;
+                    }
+                    // Test authentication before enabling
+                    final success =
+                    await deviceService.authenticateWithBiometric();
+                    if (success) {
+                      await themeProvider.setFingerprintEnabled(true);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Row(
+                              children: [
+                                Icon(Icons.check_circle,
+                                    color: Colors.white, size: 18),
+                                SizedBox(width: 8),
+                                Text('Fingerprint lock enabled!'),
+                              ],
+                            ),
+                            backgroundColor: AppTheme.primaryGreen,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        );
+                      }
+                    }
+                  } else {
+                    await themeProvider.setFingerprintEnabled(false);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Row(
+                            children: [
+                              Icon(Icons.lock_open,
+                                  color: Colors.white, size: 18),
+                              SizedBox(width: 8),
+                              Text('Fingerprint lock disabled'),
+                            ],
+                          ),
+                          backgroundColor: Colors.orange,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      );
+                    }
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
         OutlinedButton.icon(
           onPressed: () {},
           icon: const Icon(Icons.lock_reset),

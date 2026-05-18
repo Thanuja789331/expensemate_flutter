@@ -8,6 +8,9 @@ import '../../models/transaction_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/transaction_provider.dart';
 import '../../theme/app_theme.dart';
+import 'dart:async';
+import 'package:sensors_plus/sensors_plus.dart';
+import '../../services/device_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -20,15 +23,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final _searchController = TextEditingController();
   String _selectedFilter = 'all';
   String _searchQuery = '';
+  final DeviceService _deviceService = DeviceService();
+  StreamSubscription? _shakeSubscription;
+  double _accelX = 0, _accelY = 0, _accelZ = 0;
+  bool _isShaking = false;
+
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    _initSensors();
   }
 
   @override
   void dispose() {
+    _shakeSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -37,6 +47,63 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final authProvider = context.read<AuthProvider>();
     final transactionProvider = context.read<TransactionProvider>();
     await transactionProvider.loadTransactions(authProvider.userId);
+  }
+
+  // ── Init accelerometer ───────────────────────────────────────
+  void _initSensors() {
+
+    // Live accelerometer values
+    accelerometerEventStream().listen((event) {
+
+      if (mounted) {
+        setState(() {
+          _accelX = event.x;
+          _accelY = event.y;
+          _accelZ = event.z;
+        });
+      }
+
+    });
+
+    // Shake to refresh
+    _shakeSubscription = _deviceService.shakeStream.listen((_) {
+
+      if (mounted) {
+
+        setState(() => _isShaking = true);
+
+        _loadData();
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.refresh, color: Colors.white, size: 18),
+                SizedBox(width: 8),
+                Text('Dashboard refreshed!'),
+              ],
+            ),
+            duration: const Duration(seconds: 1),
+            behavior: SnackBarBehavior.floating,
+            backgroundColor: AppTheme.primaryGreen,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+
+        Future.delayed(const Duration(seconds: 1), () {
+
+          if (mounted) {
+            setState(() => _isShaking = false);
+          }
+
+        });
+
+      }
+
+    });
+
   }
 
   // ── Get filtered transactions ────────────────────────────────
@@ -123,6 +190,130 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       body: Column(
         children: [
+          // ── Live Accelerometer Card ──────────────────────────────────
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: _isShaking
+                    ? AppTheme.primaryGreen.withOpacity(0.2)
+                    : Theme.of(context).cardColor,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: _isShaking
+                      ? AppTheme.primaryGreen
+                      : Colors.grey.withOpacity(0.2),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.vibration,
+                        color: _isShaking
+                            ? AppTheme.primaryGreen
+                            : Colors.grey,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _isShaking
+                            ? '📳 Shaking — Refreshing...'
+                            : 'Accelerometer — Shake to Refresh',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _isShaking
+                              ? AppTheme.primaryGreen
+                              : Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      _AccelValue(label: 'X', value: _accelX, color: Colors.red),
+                      const SizedBox(width: 12),
+                      _AccelValue(label: 'Y', value: _accelY, color: Colors.green),
+                      const SizedBox(width: 12),
+                      _AccelValue(label: 'Z', value: _accelZ, color: Colors.blue),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Stack(
+                children: [
+
+                  Image.asset(
+                    'assets/images/dashboard_banner.jpg',
+                    height: 180,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                  ),
+
+                  Container(
+                    height: 180,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.black.withOpacity(0.6),
+                          Colors.transparent,
+                        ],
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                      ),
+                    ),
+                  ),
+
+                  const Positioned(
+                    left: 20,
+                    bottom: 20,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+
+                        Text(
+                          'Expense Overview',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 26,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+
+                        SizedBox(height: 6),
+
+                        Text(
+                          'Track your spending smartly',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                          ),
+                        ),
+
+                      ],
+                    ),
+                  ),
+
+                ],
+              ),
+            ),
+          ),
+
+
+
 
           // ── Search Bar ───────────────────────────────────────
           Padding(
@@ -710,3 +901,42 @@ class DeviceServiceHelper {
   }
 }
 
+// ── Accelerometer Value Widget ───────────────────────────────
+class _AccelValue extends StatelessWidget {
+  final String label;
+  final double value;
+  final Color color;
+
+  const _AccelValue({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '$label: ${value.toStringAsFixed(1)}',
+            style: TextStyle(
+              fontSize: 11,
+              color: color,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

@@ -3,6 +3,7 @@ import 'package:battery_plus/battery_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:local_auth/local_auth.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
 class DeviceService {
@@ -15,12 +16,12 @@ class DeviceService {
   final Battery _battery = Battery();
   final Connectivity _connectivity = Connectivity();
   final ImagePicker _imagePicker = ImagePicker();
+  final LocalAuthentication _localAuth = LocalAuthentication();
 
   // ═══════════════════════════════════════════════════════════
   // CAMERA
   // ═══════════════════════════════════════════════════════════
 
-  // Pick image from camera
   Future<String?> pickImageFromCamera() async {
     try {
       final XFile? photo = await _imagePicker.pickImage(
@@ -35,7 +36,6 @@ class DeviceService {
     }
   }
 
-  // Pick image from gallery
   Future<String?> pickImageFromGallery() async {
     try {
       final XFile? image = await _imagePicker.pickImage(
@@ -54,23 +54,18 @@ class DeviceService {
   // GPS / LOCATION
   // ═══════════════════════════════════════════════════════════
 
-  // Get current location
   Future<Position?> getCurrentLocation() async {
     try {
-      // Check if location services are enabled
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) return null;
 
-      // Check permissions
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) return null;
       }
-
       if (permission == LocationPermission.deniedForever) return null;
 
-      // Get position
       return await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
@@ -79,7 +74,6 @@ class DeviceService {
     }
   }
 
-  // Format location as readable string
   String formatLocation(double? lat, double? lng) {
     if (lat == null || lng == null) return 'No location';
     return '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
@@ -89,7 +83,6 @@ class DeviceService {
   // BATTERY
   // ═══════════════════════════════════════════════════════════
 
-  // Get battery level (0-100)
   Future<int> getBatteryLevel() async {
     try {
       return await _battery.batteryLevel;
@@ -98,7 +91,6 @@ class DeviceService {
     }
   }
 
-  // Get battery status
   Future<BatteryState> getBatteryState() async {
     try {
       return await _battery.batteryState;
@@ -107,14 +99,13 @@ class DeviceService {
     }
   }
 
-  // Stream battery changes
-  Stream<BatteryState> get batteryStateStream => _battery.onBatteryStateChanged;
+  Stream<BatteryState> get batteryStateStream =>
+      _battery.onBatteryStateChanged;
 
   // ═══════════════════════════════════════════════════════════
   // CONNECTIVITY
   // ═══════════════════════════════════════════════════════════
 
-  // Check if currently online
   Future<bool> isOnline() async {
     try {
       final result = await _connectivity.checkConnectivity();
@@ -124,7 +115,6 @@ class DeviceService {
     }
   }
 
-  // Stream connectivity changes
   Stream<ConnectivityResult> get connectivityStream =>
       _connectivity.onConnectivityChanged.map(
             (results) => results.isNotEmpty
@@ -136,12 +126,9 @@ class DeviceService {
   // ACCELEROMETER / SHAKE DETECTION
   // ═══════════════════════════════════════════════════════════
 
-  // Stream accelerometer events
   Stream<AccelerometerEvent> get accelerometerStream =>
       accelerometerEventStream();
 
-  // Detect shake gesture
-  // Returns a stream that emits true when shake is detected
   Stream<bool> get shakeStream {
     double lastX = 0, lastY = 0, lastZ = 0;
     const double shakeThreshold = 15.0;
@@ -157,5 +144,65 @@ class DeviceService {
 
       return (deltaX + deltaY + deltaZ) > shakeThreshold;
     }).where((isShaking) => isShaking);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // GYROSCOPE
+  // ═══════════════════════════════════════════════════════════
+
+  // Stream gyroscope events
+  Stream<GyroscopeEvent> get gyroscopeStream => gyroscopeEventStream();
+
+  // Get gyroscope tilt description
+  String getGyroscopeTilt(double x, double y, double z) {
+    if (x.abs() > y.abs() && x.abs() > z.abs()) {
+      return x > 0 ? 'Tilting Forward' : 'Tilting Backward';
+    } else if (y.abs() > x.abs() && y.abs() > z.abs()) {
+      return y > 0 ? 'Tilting Right' : 'Tilting Left';
+    } else {
+      return z > 0 ? 'Rotating Clockwise' : 'Rotating Counter-clockwise';
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // FINGERPRINT / BIOMETRIC
+  // ═══════════════════════════════════════════════════════════
+
+  // Check if biometric is available
+  Future<bool> isBiometricAvailable() async {
+    try {
+      final isAvailable = await _localAuth.canCheckBiometrics;
+      final isDeviceSupported = await _localAuth.isDeviceSupported();
+      return isAvailable && isDeviceSupported;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Get available biometric types
+  Future<List<BiometricType>> getAvailableBiometrics() async {
+    try {
+      return await _localAuth.getAvailableBiometrics();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Authenticate with biometric
+  Future<bool> authenticateWithBiometric() async {
+    try {
+      final isAvailable = await isBiometricAvailable();
+      if (!isAvailable) return false;
+
+      return await _localAuth.authenticate(
+        localizedReason: 'Authenticate to access ExpenseMate',
+        options: const AuthenticationOptions(
+          stickyAuth: true,
+          biometricOnly: false,
+        ),
+      );
+    } catch (e) {
+      return false;
+    }
   }
 }

@@ -10,6 +10,7 @@ class ThemeProvider extends ChangeNotifier {
 
   ThemeProvider() {
     _loadTheme();
+    loadFingerprintPreference();
   }
 
   // ── Load saved theme from device ─────────────────────────────
@@ -45,6 +46,24 @@ class ThemeProvider extends ChangeNotifier {
     if (_themeMode == ThemeMode.light) themeString = 'light';
     if (_themeMode == ThemeMode.dark) themeString = 'dark';
     await prefs.setString('theme_mode', themeString);
+  }
+
+  // ── Fingerprint lock preference ──────────────────────────────
+  bool _fingerprintEnabled = false;
+
+  bool get fingerprintEnabled => _fingerprintEnabled;
+
+  Future<void> loadFingerprintPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    _fingerprintEnabled = prefs.getBool('fingerprint_enabled') ?? false;
+    notifyListeners();
+  }
+
+  Future<void> setFingerprintEnabled(bool value) async {
+    _fingerprintEnabled = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('fingerprint_enabled', value);
+    notifyListeners();
   }
 
   // ── Helper to parse string to ThemeMode ──────────────────────

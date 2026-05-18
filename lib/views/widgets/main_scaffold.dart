@@ -18,8 +18,10 @@ class MainScaffold extends StatelessWidget {
         return 2;
       case '/summary':
         return 3;
-      case '/profile':
+      case '/budget':
         return 4;
+      case '/profile':
+        return 5;
       default:
         return 0;
     }
@@ -48,6 +50,9 @@ class MainScaffold extends StatelessWidget {
               context.go('/summary');
               break;
             case 4:
+              context.go('/budget');
+              break;
+            case 5:
               context.go('/profile');
               break;
           }
@@ -72,6 +77,11 @@ class MainScaffold extends StatelessWidget {
             icon: Icon(Icons.bar_chart_outlined),
             activeIcon: Icon(Icons.bar_chart),
             label: 'Summary',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.savings_outlined),
+            activeIcon: Icon(Icons.savings),
+            label: 'Budget',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),

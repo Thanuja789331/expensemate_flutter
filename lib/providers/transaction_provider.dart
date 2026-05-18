@@ -30,6 +30,45 @@ class TransactionProvider extends ChangeNotifier {
   List<TransactionModel> get recentTransactions =>
       _transactions.take(5).toList();
 
+
+  // ── Budget calculations ──────────────────────────────────────
+  double _monthlyBudget = 50000.0;
+
+  double get monthlyBudget => _monthlyBudget;
+
+  void setMonthlyBudget(double budget) {
+    _monthlyBudget = budget;
+    notifyListeners();
+  }
+
+  double get budgetUsedPercentage {
+    if (_monthlyBudget <= 0) return 0;
+    return (totalExpense / _monthlyBudget * 100).clamp(0, 100);
+  }
+
+  double get remainingBudget => _monthlyBudget - totalExpense;
+
+  String get budgetStatus {
+    final percentage = budgetUsedPercentage;
+    if (percentage >= 100) return 'exceeded';
+    if (percentage >= 80) return 'warning';
+    return 'safe';
+  }
+
+  double get dailyAverage {
+    if (transactions.isEmpty) return 0;
+    final now = DateTime.now();
+    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    return totalExpense / daysInMonth;
+  }
+
+  double get predictedMonthlyExpense {
+    final now = DateTime.now();
+    final dayOfMonth = now.day;
+    if (dayOfMonth == 0) return 0;
+    return (totalExpense / dayOfMonth) * DateTime(now.year, now.month + 1, 0).day;
+  }
+
   // ── Category breakdown for pie chart ─────────────────────────
   Map<String, double> get categoryBreakdown {
     Map<String, double> breakdown = {};

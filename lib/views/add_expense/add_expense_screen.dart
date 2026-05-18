@@ -27,6 +27,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
   String _selectedType = 'expense';
   String _selectedCategory = 'Food & Drinks';
+  String _selectedCurrency = 'LKR';
   DateTime _selectedDate = DateTime.now();
   String? _imagePath;
   double? _latitude;
@@ -46,6 +47,19 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     'Salary',
     'Freelance',
     'Other',
+  ];
+
+  final List<Map<String, String>> _currencies = [
+    {'code': 'LKR', 'symbol': 'Rs', 'flag': '🇱🇰'},
+    {'code': 'USD', 'symbol': '\$', 'flag': '🇺🇸'},
+    {'code': 'EUR', 'symbol': '€', 'flag': '🇪🇺'},
+    {'code': 'GBP', 'symbol': '£', 'flag': '🇬🇧'},
+    {'code': 'AUD', 'symbol': 'A\$', 'flag': '🇦🇺'},
+    {'code': 'CAD', 'symbol': 'C\$', 'flag': '🇨🇦'},
+    {'code': 'JPY', 'symbol': '¥', 'flag': '🇯🇵'},
+    {'code': 'INR', 'symbol': '₹', 'flag': '🇮🇳'},
+    {'code': 'SGD', 'symbol': 'S\$', 'flag': '🇸🇬'},
+    {'code': 'AED', 'symbol': 'د.إ', 'flag': '🇦🇪'},
   ];
 
   bool get _isEditMode => widget.existingTransaction != null;
@@ -405,21 +419,76 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
 
   // ── Amount Field ─────────────────────────────────────────────
   Widget _buildAmountField() {
-    return TextFormField(
-      controller: _amountController,
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: const InputDecoration(
-        labelText: 'Amount',
-        hintText: '0.00',
-        prefixIcon: Icon(Icons.attach_money),
-        prefixText: 'Rs. ',
-      ),
-      validator: (value) {
-        if (value == null || value.isEmpty) return 'Please enter an amount';
-        if (double.tryParse(value) == null) return 'Please enter a valid number';
-        if (double.parse(value) <= 0) return 'Amount must be greater than 0';
-        return null;
-      },
+    final selectedCurrency = _currencies.firstWhere(
+          (c) => c['code'] == _selectedCurrency,
+      orElse: () => _currencies.first,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Currency selector
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).inputDecorationTheme.fillColor,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.withOpacity(0.3)),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              value: _selectedCurrency,
+              isExpanded: true,
+              icon: const Icon(Icons.keyboard_arrow_down),
+              items: _currencies.map((currency) {
+                return DropdownMenuItem<String>(
+                  value: currency['code'],
+                  child: Row(
+                    children: [
+                      Text(
+                        currency['flag']!,
+                        style: const TextStyle(fontSize: 20),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        '${currency['code']} (${currency['symbol']})',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+              onChanged: (value) {
+                if (value != null) {
+                  setState(() => _selectedCurrency = value);
+                }
+              },
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+
+        // Amount field
+        TextFormField(
+          controller: _amountController,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            labelText: 'Amount',
+            hintText: '0.00',
+            prefixIcon: const Icon(Icons.attach_money),
+            prefixText: '${selectedCurrency['symbol']} ',
+          ),
+          validator: (value) {
+            if (value == null || value.isEmpty) return 'Please enter an amount';
+            if (double.tryParse(value) == null) return 'Please enter a valid number';
+            if (double.parse(value) <= 0) return 'Amount must be greater than 0';
+            return null;
+          },
+        ),
+      ],
     ).animate().fadeIn(delay: 200.ms);
   }
 

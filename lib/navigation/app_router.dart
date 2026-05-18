@@ -10,31 +10,29 @@ import '../views/add_expense/add_expense_screen.dart';
 import '../views/summary/summary_screen.dart';
 import '../views/profile/profile_screen.dart';
 import '../views/widgets/main_scaffold.dart';
+import '../views/tips_screen.dart';
+import '../views/budget_planner_screen.dart';
 
 class AppRouter {
   static GoRouter createRouter(BuildContext context) {
+    final authProvider = context.read<AuthProvider>();
+
     return GoRouter(
       initialLocation: '/login',
+      refreshListenable: authProvider,
       redirect: (context, state) {
-        final authProvider = context.read<AuthProvider>();
         final isAuthenticated =
             authProvider.status == AuthStatus.authenticated;
         final isAuthRoute = state.matchedLocation == '/login' ||
             state.matchedLocation == '/register';
 
-        // If still loading auth state
         if (authProvider.status == AuthStatus.unknown) return null;
-
-        // If not logged in and not on auth screen → go to login
         if (!isAuthenticated && !isAuthRoute) return '/login';
-
-        // If logged in and on auth screen → go to home
         if (isAuthenticated && isAuthRoute) return '/home';
 
         return null;
       },
       routes: [
-        // ── Auth Routes ────────────────────────────────────────
         GoRoute(
           path: '/login',
           builder: (context, state) => const LoginScreen(),
@@ -43,8 +41,6 @@ class AppRouter {
           path: '/register',
           builder: (context, state) => const RegisterScreen(),
         ),
-
-        // ── Main App Routes (with Bottom Navigation) ───────────
         ShellRoute(
           builder: (context, state, child) {
             return MainScaffold(child: child);
@@ -61,9 +57,10 @@ class AppRouter {
             GoRoute(
               path: '/add-expense',
               builder: (context, state) {
-                // Pass transaction id for edit mode
                 final extra = state.extra as Map<String, dynamic>?;
-                return AddExpenseScreen(existingTransaction: extra?['transaction']);
+                return AddExpenseScreen(
+                  existingTransaction: extra?['transaction'],
+                );
               },
             ),
             GoRoute(
@@ -71,14 +68,23 @@ class AppRouter {
               builder: (context, state) => const SummaryScreen(),
             ),
             GoRoute(
+              path: '/budget',
+              builder: (context, state) => const BudgetPlannerScreen(),
+            ),
+            GoRoute(
               path: '/profile',
               builder: (context, state) => const ProfileScreen(),
             ),
+            GoRoute(
+              path: '/tips',
+              builder: (context, state) => const TipsScreen(),
+            ),
+
           ],
         ),
       ],
 
-      // ── Error page ─────────────────────────────────────────
+      //Error
       errorBuilder: (context, state) => Scaffold(
         body: Center(
           child: Text('Page not found: ${state.error}'),

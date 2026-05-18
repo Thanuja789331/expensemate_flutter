@@ -21,6 +21,7 @@ class _SummaryScreenState extends State<SummaryScreen>
   Map<String, dynamic> _exchangeRates = {};
   int _touchedPieIndex = -1;
   bool _isLoadingRates = false;
+  String _selectedCurrency = 'USD';
 
   // Chart colours
   final List<Color> _chartColors = [
@@ -62,6 +63,7 @@ class _SummaryScreenState extends State<SummaryScreen>
     if (mounted) {
       setState(() {
         _exchangeRates = rates;
+
         _isLoadingRates = false;
       });
     }
@@ -283,53 +285,184 @@ class _SummaryScreenState extends State<SummaryScreen>
     }
 
     final currencies = [
-      {'code': 'USD', 'symbol': '\$', 'name': 'US Dollar'},
-      {'code': 'EUR', 'symbol': '€', 'name': 'Euro'},
-      {'code': 'GBP', 'symbol': '£', 'name': 'British Pound'},
+      {'code': 'USD', 'symbol': '\$', 'name': 'US Dollar', 'flag': '🇺🇸'},
+      {'code': 'EUR', 'symbol': '€', 'name': 'Euro', 'flag': '🇪🇺'},
+      {'code': 'GBP', 'symbol': '£', 'name': 'British Pound', 'flag': '🇬🇧'},
+      {'code': 'AUD', 'symbol': 'A\$', 'name': 'Australian Dollar', 'flag': '🇦🇺'},
+      {'code': 'CAD', 'symbol': 'C\$', 'name': 'Canadian Dollar', 'flag': '🇨🇦'},
+      {'code': 'JPY', 'symbol': '¥', 'name': 'Japanese Yen', 'flag': '🇯🇵'},
+      {'code': 'INR', 'symbol': '₹', 'name': 'Indian Rupee', 'flag': '🇮🇳'},
+      {'code': 'SGD', 'symbol': 'S\$', 'name': 'Singapore Dollar', 'flag': '🇸🇬'},
+      {'code': 'AED', 'symbol': 'د.إ', 'name': 'UAE Dirham', 'flag': '🇦🇪'},
+      {'code': 'CNY', 'symbol': '¥', 'name': 'Chinese Yuan', 'flag': '🇨🇳'},
     ];
+
+    final selectedCurrencyData = currencies.firstWhere(
+          (c) => c['code'] == _selectedCurrency,
+      orElse: () => currencies.first,
+    );
+
+    final rate = (_exchangeRates[_selectedCurrency] as num?)?.toDouble() ?? 0.0;
+    final converted = balanceLKR * rate;
 
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Header
             Row(
               children: [
-                const Icon(Icons.currency_exchange,
-                    color: AppTheme.primaryGreen),
+                const Icon(
+                  Icons.currency_exchange,
+                  color: AppTheme.primaryGreen,
+                ),
                 const SizedBox(width: 8),
-                Text(
-                  'Rs. ${balanceLKR.toStringAsFixed(2)} equals',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                const Text(
+                  'Currency Converter',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                const Spacer(),
+                // Refresh button
+                IconButton(
+                  icon: const Icon(Icons.refresh, size: 20),
+                  onPressed: _loadExchangeRates,
+                  color: AppTheme.primaryGreen,
                 ),
               ],
             ),
-            const Divider(height: 20),
-            ...currencies.map((currency) {
-              final rate =
-                  (_exchangeRates[currency['code']] as num?)?.toDouble() ??
-                      0.0;
-              final converted = balanceLKR * rate;
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      currency['name']!,
-                      style: const TextStyle(color: Colors.grey),
+            const Divider(),
+            const SizedBox(height: 8),
+
+            // Amount in LKR
+            Text(
+              'Rs. ${balanceLKR.toStringAsFixed(2)}',
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: AppTheme.primaryGreen,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Sri Lankan Rupee',
+              style: TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+
+            // Currency dropdown
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryGreen.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppTheme.primaryGreen.withOpacity(0.3),
+                ),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selectedCurrency,
+                  isExpanded: true,
+                  icon: const Icon(
+                    Icons.keyboard_arrow_down,
+                    color: AppTheme.primaryGreen,
+                  ),
+                  items: currencies.map((currency) {
+                    return DropdownMenuItem<String>(
+                      value: currency['code'],
+                      child: Row(
+                        children: [
+                          Text(
+                            currency['flag']!,
+                            style: const TextStyle(fontSize: 20),
+                          ),
+                          const SizedBox(width: 10),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                currency['name']!,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              Text(
+                                currency['code']!,
+                                style: const TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _selectedCurrency = value);
+                    }
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Converted amount
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    AppTheme.primaryGreen.withOpacity(0.1),
+                    AppTheme.primaryGreen.withOpacity(0.05),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppTheme.primaryGreen.withOpacity(0.3),
+                ),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    '${selectedCurrencyData['flag']} ${selectedCurrencyData['symbol']}${converted.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.primaryGreen,
                     ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    selectedCurrencyData['name']!,
+                    style: const TextStyle(
+                      color: Colors.grey,
+                      fontSize: 13,
+                    ),
+                  ),
+                  if (rate > 0) ...[
+                    const SizedBox(height: 8),
                     Text(
-                      '${currency['symbol']}${converted.toStringAsFixed(2)}',
+                      '1 LKR = ${rate.toStringAsFixed(6)} ${selectedCurrencyData['code']}',
                       style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
+                        color: Colors.grey,
+                        fontSize: 11,
                       ),
                     ),
                   ],
-                ),
-              );
-            }),
+                ],
+              ),
+            ),
           ],
         ),
       ),

@@ -62,15 +62,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     return Scaffold(
       body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              theme.colorScheme.primary,
-              theme.colorScheme.primary.withOpacity(0.7),
-              theme.colorScheme.secondary.withOpacity(0.5),
-            ],
+        decoration: const BoxDecoration(
+          image: DecorationImage(
+            image: AssetImage('assets/images/register_bg.jpg'),
+            fit: BoxFit.fitHeight,
+            alignment: Alignment.topCenter,
+            colorFilter: ColorFilter.mode(
+              Colors.black54,
+              BlendMode.darken,
+            ),
           ),
         ),
         child: SafeArea(
@@ -104,13 +104,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       .animate()
                       .fadeIn(duration: 600.ms, delay: 200.ms),
 
+                  const Text(
+                    'Track your expenses smartly',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.white70,
+                    ),
+                  )
+                      .animate()
+                      .fadeIn(duration: 600.ms, delay: 300.ms),
+
                   const SizedBox(height: 32),
 
                   // ── Register Card ──────────────────────────
                   Card(
-                    elevation: 8,
+                    elevation: 10,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(24),
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(24),
@@ -254,7 +264,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             ),
                             const SizedBox(height: 24),
 
-                            // Register button with scale animation
+                            // Register button
                             GestureDetector(
                               onTapDown: (_) =>
                                   setState(() => _isPressed = true),

@@ -12,7 +12,7 @@ class ApiService {
   static const String _exchangeRateUrl =
       'https://api.exchangerate-api.com/v4/latest/LKR';
   static const String _tipsUrl =
-      'https://jsonplaceholder.typicode.com/posts?_limit=5';
+      'https://jsonplaceholder.typicode.com/posts?_limit=10';
 
   // ── LOCAL JSON path ──────────────────────────────────────────
   static const String _localDataPath = 'assets/json/app_data.json';
@@ -49,34 +49,53 @@ class ApiService {
     }
   }
 
+  // ── Check internet connection ────────────────────────────────
+  Future<bool> isOnline() async {
+    try {
+      final result = await http
+          .get(Uri.parse('https://jsonplaceholder.typicode.com/posts/1'))
+          .timeout(const Duration(seconds: 5));
+      return result.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ── Capitalise first letter ──────────────────────────────────
+  String _capitalise(String text) {
+    if (text.isEmpty) return text;
+    return text[0].toUpperCase() + text.substring(1);
+  }
+
   // ── Get Tips from API (online) ───────────────────────────────
   Future<List<Map<String, dynamic>>> getTipsFromApi() async {
     try {
+      final connected = await isOnline();
+
+      if (!connected) {
+        // Offline — load from local JSON
+        return await getLocalTips();
+      }
+
       final response = await http
           .get(Uri.parse(_tipsUrl))
           .timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final List<dynamic> data = json.decode(response.body);
-
-        // Map JSONPlaceholder posts to tip format
         return data.map((post) {
           return {
             'id': post['id'].toString(),
-            'title': post['title'].toString().length > 40
-                ? post['title'].toString().substring(0, 40)
-                : post['title'].toString(),
-            'description': post['body'].toString().length > 100
-                ? post['body'].toString().substring(0, 100)
-                : post['body'].toString(),
+            'title': _capitalise(post['title'].toString()),
+            'description': post['body'].toString(),
+            'userId': post['userId'].toString(),
+            'source': 'online',
           };
         }).toList();
       } else {
-        // If API fails, return local tips
         return await getLocalTips();
       }
     } catch (e) {
-      // If no internet, return local tips
       return await getLocalTips();
     }
   }
@@ -84,6 +103,12 @@ class ApiService {
   // ── Get Exchange Rates from API ──────────────────────────────
   Future<Map<String, dynamic>> getExchangeRates() async {
     try {
+      final connected = await isOnline();
+
+      if (!connected) {
+        return _defaultRates();
+      }
+
       final response = await http
           .get(Uri.parse(_exchangeRateUrl))
           .timeout(const Duration(seconds: 10));
@@ -91,19 +116,23 @@ class ApiService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final rates = data['rates'] as Map<String, dynamic>;
-
-        // Return only the currencies we need
         return {
           'LKR': 1.0,
           'USD': rates['USD'] ?? 0.0031,
           'EUR': rates['EUR'] ?? 0.0028,
           'GBP': rates['GBP'] ?? 0.0024,
+          'AUD': rates['AUD'] ?? 0.0047,
+          'CAD': rates['CAD'] ?? 0.0042,
+          'JPY': rates['JPY'] ?? 0.46,
+          'INR': rates['INR'] ?? 0.26,
+          'SGD': rates['SGD'] ?? 0.0041,
+          'AED': rates['AED'] ?? 0.011,
+          'CNY': rates['CNY'] ?? 0.022,
         };
       } else {
         return _defaultRates();
       }
     } catch (e) {
-      // If no internet, return default rates
       return _defaultRates();
     }
   }
@@ -115,6 +144,13 @@ class ApiService {
       'USD': 0.0031,
       'EUR': 0.0028,
       'GBP': 0.0024,
+      'AUD': 0.0047,
+      'CAD': 0.0042,
+      'JPY': 0.46,
+      'INR': 0.26,
+      'SGD': 0.0041,
+      'AED': 0.011,
+      'CNY': 0.022,
     };
   }
 

@@ -81,6 +81,52 @@ class SspApiService {
       };
     }
   }
+  // ── Register ─────────────────────────────────────────────────
+  Future<Map<String, dynamic>> register(
+      String name, String email, String password) async {
+    try {
+      final response = await http
+          .post(
+        Uri.parse('${AppConstants.sspBaseUrl}/auth/register'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode({
+          'name': name,
+          'email': email,
+          'password': password,
+          'password_confirmation': password,
+          'device_name': 'ExpenseMate Mobile',
+        }),
+      )
+          .timeout(const Duration(seconds: 15));
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (data['token'] != null) {
+          await saveToken(data['token']);
+        }
+        return {'success': true, 'data': data};
+      } else {
+        // Handle validation errors
+        String message = 'Registration failed';
+        if (data['errors'] != null) {
+          final errors = data['errors'] as Map<String, dynamic>;
+          message = errors.values.first[0].toString();
+        } else if (data['message'] != null) {
+          message = data['message'];
+        }
+        return {'success': false, 'message': message};
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Connection failed. Check your internet.',
+      };
+    }
+  }
 
   // ── Logout ───────────────────────────────────────────────────
   Future<void> logout() async {

@@ -47,7 +47,6 @@ class AuthProvider extends ChangeNotifier {
 
   // ── Set user data from API response ──────────────────────────
   void _setUserFromData(Map<String, dynamic> data) {
-    // Handle nested data structure
     final user = data['data'] ?? data['user'] ?? data;
     _userName = user['name']?.toString() ?? '';
     _userEmail = user['email']?.toString() ?? '';
@@ -64,12 +63,10 @@ class AuthProvider extends ChangeNotifier {
       final result = await _sspApi.login(email, password);
 
       if (result['success'] == true) {
-        // Get user data after login
         final userData = await _sspApi.getMe();
         if (userData != null) {
           _setUserFromData(userData);
         } else {
-          // Fallback — extract from login response
           final loginData = result['data'];
           if (loginData['user'] != null) {
             _setUserFromData(loginData['user']);
@@ -97,7 +94,7 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // ── Register ─────────────────────────────────────────────────
+  // ── Register via SSP API ─────────────────────────────────────
   Future<bool> register(
       String name, String email, String password) async {
     try {
@@ -105,17 +102,32 @@ class AuthProvider extends ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
 
-      // SSP API doesn't support register via API
-      // Try login first — if account exists use it
-      // Otherwise show message to register via web
-      _isLoading = false;
-      _errorMessage =
-      'Please register at: expensemate-prod.eba-3ztxbse2.ap-southeast-1.elasticbeanstalk.com';
-      notifyListeners();
-      return false;
+      // Call register in SspApiService
+      final result = await _sspApi.register(name, email, password);
+
+      if (result['success'] == true) {
+        // Get user data after registration
+        final userData = await _sspApi.getMe();
+        if (userData != null) {
+          _setUserFromData(userData);
+        } else {
+          _userName = name;
+          _userEmail = email;
+          _userId = 'user_${email.hashCode}';
+        }
+        _status = AuthStatus.authenticated;
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } else {
+        _errorMessage = result['message'] ?? 'Registration failed';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
     } catch (e) {
       _isLoading = false;
-      _errorMessage = 'Registration failed';
+      _errorMessage = 'Connection failed. Please check your internet.';
       notifyListeners();
       return false;
     }

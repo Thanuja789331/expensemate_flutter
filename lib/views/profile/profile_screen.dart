@@ -450,25 +450,125 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // ── Account Detail ───────────────────────────────────────────
   Widget _buildAccountDetail(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _DetailItem(label: 'Full Name', value: authProvider.userName),
-        const SizedBox(height: 16),
-        _DetailItem(label: 'Email', value: authProvider.userEmail),
-        const SizedBox(height: 16),
-        _DetailItem(label: 'Account Status', value: 'Active'),
-        const SizedBox(height: 24),
-        ElevatedButton.icon(
-          onPressed: () => _showSignOutDialog(context),
-          icon: const Icon(Icons.logout),
-          label: const Text('Sign Out'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red,
-            minimumSize: const Size(double.infinity, 48),
-          ),
-        ),
-      ],
+    final nameController = TextEditingController(
+      text: authProvider.userName,
+    );
+    bool isEditing = false;
+
+    return StatefulBuilder(
+      builder: (context, setLocalState) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Avatar
+            Center(
+              child: CircleAvatar(
+                radius: 40,
+                backgroundColor: AppTheme.primaryGreen.withOpacity(0.2),
+                child: Text(
+                  authProvider.userName.isNotEmpty
+                      ? authProvider.userName[0].toUpperCase()
+                      : 'U',
+                  style: const TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.primaryGreen,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Name field
+            isEditing
+                ? TextFormField(
+              controller: nameController,
+              decoration: const InputDecoration(
+                labelText: 'Full Name',
+                prefixIcon: Icon(Icons.person_outlined),
+              ),
+            )
+                : _DetailItem(
+              label: 'Full Name',
+              value: authProvider.userName,
+            ),
+            const SizedBox(height: 16),
+
+            _DetailItem(
+              label: 'Email',
+              value: authProvider.userEmail,
+            ),
+            const SizedBox(height: 16),
+            _DetailItem(
+              label: 'Account Status',
+              value: 'Active',
+            ),
+            const SizedBox(height: 24),
+
+            // Edit / Save button
+            isEditing
+                ? Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () =>
+                        setLocalState(() => isEditing = false),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () {
+                      // Update name
+                      setLocalState(() => isEditing = false);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: const Row(
+                            children: [
+                              Icon(Icons.check_circle,
+                                  color: Colors.white, size: 18),
+                              SizedBox(width: 8),
+                              Text('Profile updated!'),
+                            ],
+                          ),
+                          backgroundColor: AppTheme.primaryGreen,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text('Save'),
+                  ),
+                ),
+              ],
+            )
+                : OutlinedButton.icon(
+              onPressed: () =>
+                  setLocalState(() => isEditing = true),
+              icon: const Icon(Icons.edit),
+              label: const Text('Edit Profile'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 48),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // Sign out button
+            ElevatedButton.icon(
+              onPressed: () => _showSignOutDialog(context),
+              icon: const Icon(Icons.logout),
+              label: const Text('Sign Out'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                minimumSize: const Size(double.infinity, 48),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 

@@ -42,7 +42,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _loadData() async {
     final authProvider = context.read<AuthProvider>();
     final transactionProvider = context.read<TransactionProvider>();
+
+    // Load from SQLite first (instant)
     await transactionProvider.loadTransactions(authProvider.userId);
+
+    // Then sync from API in background
+    transactionProvider.loadFromApi(authProvider.userId);
+
     await _loadTips();
   }
 

@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/transaction_model.dart';
 import '../services/database_service.dart';
+import '../services/ssp_api_service.dart';
 
 class TransactionProvider extends ChangeNotifier {
   final DatabaseService _db = DatabaseService();
   final Uuid _uuid = const Uuid();
+  final SspApiService _sspApi = SspApiService();
 
   List<TransactionModel> _transactions = [];
   bool _isLoading = false;
@@ -29,7 +31,6 @@ class TransactionProvider extends ChangeNotifier {
   // ── Recent transactions (last 5) ─────────────────────────────
   List<TransactionModel> get recentTransactions =>
       _transactions.take(5).toList();
-
 
   // ── Budget calculations ──────────────────────────────────────
   double _monthlyBudget = 50000.0;
@@ -66,7 +67,8 @@ class TransactionProvider extends ChangeNotifier {
     final now = DateTime.now();
     final dayOfMonth = now.day;
     if (dayOfMonth == 0) return 0;
-    return (totalExpense / dayOfMonth) * DateTime(now.year, now.month + 1, 0).day;
+    return (totalExpense / dayOfMonth) *
+        DateTime(now.year, now.month + 1, 0).day;
   }
 
   // ── Category breakdown for pie chart ─────────────────────────
@@ -92,6 +94,71 @@ class TransactionProvider extends ChangeNotifier {
       _isLoading = false;
       _errorMessage = 'Failed to load transactions.';
       notifyListeners();
+    }
+  }
+
+  // ── Load transactions from SSP API + SQLite ──────────────────
+  Future<void> loadFromApi(String userId) async {
+    try {
+      final apiExpenses = await _sspApi.getExpenses();
+      for (final expense in apiExpenses) {
+
+        // ── Handle category ──────────────────────────────────────
+        String categoryName = 'Other';
+        final cat = expense['category'];
+        if (cat is Map) {
+          categoryName = cat['name']?.toString() ?? 'Other';
+        } else if (cat is String) {
+          categoryName = cat;
+        }
+
+        // ── Handle amount ────────────────────────────────────────
+        double amount = 0.0;
+        final rawAmount = expense['amount'];
+        if (rawAmount is num) {
+          amount = rawAmount.toDouble();
+        } else if (rawAmount is String) {
+          amount = double.tryParse(rawAmount) ?? 0.0;
+        }
+
+        // ── Handle type ──────────────────────────────────────────
+        String type = 'expense';
+        final rawType = expense['type'];
+        if (rawType is String) {
+          type = rawType.toLowerCase() == 'income' ? 'income' : 'expense';
+        }
+
+        // ── Handle date ──────────────────────────────────────────
+        String date = '';
+        final rawDate = expense['date'] ??
+            expense['created_at'] ??
+            expense['expense_date'];
+        if (rawDate is String) {
+          date = rawDate.length > 10
+              ? rawDate.substring(0, 10)
+              : rawDate;
+        }
+
+        // ── Handle note/title ────────────────────────────────────
+        String? note = expense['note']?.toString() ??
+            expense['title']?.toString() ??
+            expense['description']?.toString();
+
+        final transaction = TransactionModel(
+          id: 'ssp_${expense['id']?.toString() ?? _uuid.v4()}',
+          userId: userId,
+          type: type,
+          category: categoryName,
+          amount: amount,
+          date: date,
+          note: note,
+        );
+
+        await _db.insertTransaction(transaction);
+      }
+      await loadTransactions(userId);
+    } catch (e) {
+      // Silent fail — use local data
     }
   }
 
@@ -121,9 +188,14 @@ class TransactionProvider extends ChangeNotifier {
         longitude: longitude,
       );
 
+      // Save to SQLite first (offline-first)
       await _db.insertTransaction(transaction);
       _transactions.insert(0, transaction);
       notifyListeners();
+
+      // Sync to SSP API in background
+      _syncToApi(transaction);
+
       return true;
     } catch (e) {
       _errorMessage = 'Failed to add transaction.';
@@ -136,7 +208,8 @@ class TransactionProvider extends ChangeNotifier {
   Future<bool> updateTransaction(TransactionModel transaction) async {
     try {
       await _db.updateTransaction(transaction);
-      final index = _transactions.indexWhere((t) => t.id == transaction.id);
+      final index =
+      _transactions.indexWhere((t) => t.id == transaction.id);
       if (index != -1) {
         _transactions[index] = transaction;
         notifyListeners();
@@ -176,6 +249,41 @@ class TransactionProvider extends ChangeNotifier {
       return t.category.toLowerCase().contains(query.toLowerCase()) ||
           (t.note?.toLowerCase().contains(query.toLowerCase()) ?? false);
     }).toList();
+  }
+
+  // ── Sync to SSP API ──────────────────────────────────────────
+  Future<void> _syncToApi(TransactionModel transaction) async {
+    try {
+      await _sspApi.createExpense({
+        'title': transaction.note ?? transaction.category,
+        'amount': transaction.amount,
+        'type': transaction.type,
+        'category': transaction.category,
+        'category_id': _getCategoryId(transaction.category),
+        'date': transaction.date,
+        'note': transaction.note ?? '',
+        'expense_date': transaction.date,
+      });
+    } catch (e) {
+      // Silent fail
+    }
+  }
+
+  // ── Map category name to ID ──────────────────────────────────
+  int _getCategoryId(String categoryName) {
+    const categoryMap = {
+      'Food & Drinks': 1,
+      'Transport': 2,
+      'Shopping': 3,
+      'Bills': 4,
+      'Health': 5,
+      'Entertainment': 6,
+      'Education': 7,
+      'Salary': 8,
+      'Freelance': 9,
+      'Other': 10,
+    };
+    return categoryMap[categoryName] ?? 1;
   }
 
   // ── Clear error ──────────────────────────────────────────────

@@ -64,28 +64,43 @@
   "tips": [
     {
       "id": "1",
-      "title": "50/30/20 Rule",
-      "description": "Spend 50% on needs, 30% on wants and save 20% of your income every month."
+      "title": "Master the 50/30/20 Rule",
+      "description": "Allocate 50% of your income to needs (rent, bills), 30% to wants (hobbies, dining out), and 20% to savings or debt repayment. This simple ratio keeps your finances balanced and sustainable."
     },
     {
       "id": "2",
-      "title": "Track Daily Spending",
-      "description": "Recording every expense, no matter how small, helps you spot bad spending habits quickly."
+      "title": "Track Every Cent with ExpenseMate",
+      "description": "Recording even the smallest daily expenses helps identify patterns where money 'leaks'. Use our categories to see if that daily coffee is adding up to more than you thought!"
     },
     {
       "id": "3",
-      "title": "Build an Emergency Fund",
-      "description": "Try to save at least 3 months of expenses as an emergency fund before investing."
+      "title": "Build a 3-Month Emergency Fund",
+      "description": "Financial security starts with a safety net. Aim to save enough to cover 3-6 months of essential living expenses. Keep this in a separate, accessible savings account."
     },
     {
       "id": "4",
-      "title": "Avoid Impulse Buying",
-      "description": "Wait 24 hours before making any unplanned purchase above Rs. 1000."
+      "title": "The 24-Hour Rule for Impulse Buys",
+      "description": "Before purchasing anything non-essential over Rs. 2000, wait 24 hours. Often, the initial urge to buy passes, saving you from spending on things you don't truly need."
     },
     {
       "id": "5",
-      "title": "Review Monthly",
-      "description": "Set aside 10 minutes at the end of each month to review your spending patterns."
+      "title": "Automate Your Savings",
+      "description": "Treat your savings like a bill that must be paid. Set up an automatic transfer to your savings account on your payday. If you don't see it in your checking account, you won't spend it."
+    },
+    {
+      "id": "6",
+      "title": "Prioritize High-Interest Debt",
+      "description": "If you have multiple debts, focus on paying off the ones with the highest interest rates first (usually credit cards). This reduces the total amount you pay over time."
+    },
+    {
+      "id": "7",
+      "title": "Shop with a Grocery List",
+      "description": "Never go grocery shopping hungry or without a list. Planning meals ahead and sticking to your list prevents impulse purchases and reduces food waste."
+    },
+    {
+      "id": "8",
+      "title": "Review Your Subscriptions",
+      "description": "Monthly subscriptions for streaming, apps, or gyms can add up quietly. Review them once a month and cancel anything you haven't used in the last 30 days."
     }
   ],
   "currencies": [
@@ -108,6 +123,11 @@
       "code": "GBP",
       "symbol": "£",
       "name": "British Pound"
+    },
+    {
+      "code": "INR",
+      "symbol": "₹",
+      "name": "Indian Rupee"
     }
   ]
 }

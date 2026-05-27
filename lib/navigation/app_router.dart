@@ -23,8 +23,9 @@ class AppRouter {
       redirect: (context, state) {
         final isAuthenticated =
             authProvider.status == AuthStatus.authenticated;
-        final isAuthRoute = state.matchedLocation == '/login' ||
-            state.matchedLocation == '/register';
+        final isAuthRoute =
+            state.matchedLocation == '/login' ||
+                state.matchedLocation == '/register';
 
         if (authProvider.status == AuthStatus.unknown) return null;
         if (!isAuthenticated && !isAuthRoute) return '/login';
@@ -33,6 +34,8 @@ class AppRouter {
         return null;
       },
       routes: [
+
+        // ── Auth Routes ────────────────────────────────────────
         GoRoute(
           path: '/login',
           builder: (context, state) => const LoginScreen(),
@@ -41,6 +44,19 @@ class AppRouter {
           path: '/register',
           builder: (context, state) => const RegisterScreen(),
         ),
+
+        // ── Add Expense (outside shell for push navigation) ────
+        GoRoute(
+          path: '/add-expense',
+          builder: (context, state) {
+            final extra = state.extra as Map<String, dynamic>?;
+            return AddExpenseScreen(
+              existingTransaction: extra?['transaction'],
+            );
+          },
+        ),
+
+        // ── Main App Routes (with Bottom Navigation) ───────────
         ShellRoute(
           builder: (context, state, child) {
             return MainScaffold(child: child);
@@ -53,15 +69,6 @@ class AppRouter {
             GoRoute(
               path: '/dashboard',
               builder: (context, state) => const DashboardScreen(),
-            ),
-            GoRoute(
-              path: '/add-expense',
-              builder: (context, state) {
-                final extra = state.extra as Map<String, dynamic>?;
-                return AddExpenseScreen(
-                  existingTransaction: extra?['transaction'],
-                );
-              },
             ),
             GoRoute(
               path: '/summary',
@@ -79,17 +86,9 @@ class AppRouter {
               path: '/tips',
               builder: (context, state) => const TipsScreen(),
             ),
-
           ],
         ),
       ],
-
-      //Error
-      errorBuilder: (context, state) => Scaffold(
-        body: Center(
-          child: Text('Page not found: ${state.error}'),
-        ),
-      ),
     );
   }
 }

@@ -9,6 +9,7 @@ class TransactionModel {
   final String? imagePath;
   final double? latitude;
   final double? longitude;
+  final String currency;
 
   TransactionModel({
     required this.id,
@@ -21,6 +22,7 @@ class TransactionModel {
     this.imagePath,
     this.latitude,
     this.longitude,
+    this.currency = 'LKR',
   });
 
   // Convert to Map for SQLite
@@ -36,6 +38,7 @@ class TransactionModel {
       'imagePath': imagePath,
       'latitude': latitude,
       'longitude': longitude,
+      'currency': currency,
     };
   }
 
@@ -52,6 +55,7 @@ class TransactionModel {
       imagePath: map['imagePath'],
       latitude: map['latitude'],
       longitude: map['longitude'],
+      currency: map['currency'] ?? 'LKR',
     );
   }
 
@@ -103,6 +107,7 @@ class TransactionModel {
     String? imagePath,
     double? latitude,
     double? longitude,
+    String? currency,
   }) {
     return TransactionModel(
       id: id ?? this.id,
@@ -115,6 +120,7 @@ class TransactionModel {
       imagePath: imagePath ?? this.imagePath,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
+      currency: currency ?? this.currency,
     );
   }
 }

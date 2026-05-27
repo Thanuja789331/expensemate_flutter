@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
-import 'package:fl_chart/fl_chart.dart';
 import '../../providers/transaction_provider.dart';
 import '../../theme/app_theme.dart';
 
@@ -16,11 +15,39 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
   final _budgetController = TextEditingController();
   bool _isEditing = false;
 
+  // ── Currency settings ────────────────────────────────────────
+  String _selectedCurrency = 'LKR';
+  final List<Map<String, String>> _currencies = [
+    {'code': 'LKR', 'symbol': 'Rs', 'flag': '🇱🇰'},
+    {'code': 'USD', 'symbol': '\$', 'flag': '🇺🇸'},
+    {'code': 'EUR', 'symbol': '€', 'flag': '🇪🇺'},
+    {'code': 'GBP', 'symbol': '£', 'flag': '🇬🇧'},
+    {'code': 'AUD', 'symbol': 'A\$', 'flag': '🇦🇺'},
+    {'code': 'CAD', 'symbol': 'C\$', 'flag': '🇨🇦'},
+    {'code': 'JPY', 'symbol': '¥', 'flag': '🇯🇵'},
+    {'code': 'INR', 'symbol': '₹', 'flag': '🇮🇳'},
+  ];
+
+  String get _currencySymbol {
+    return _currencies.firstWhere(
+          (c) => c['code'] == _selectedCurrency,
+      orElse: () => _currencies.first,
+    )['symbol']!;
+  }
+
+  String get _currencyFlag {
+    return _currencies.firstWhere(
+          (c) => c['code'] == _selectedCurrency,
+      orElse: () => _currencies.first,
+    )['flag']!;
+  }
+
   @override
   void initState() {
     super.initState();
     final provider = context.read<TransactionProvider>();
-    _budgetController.text = provider.monthlyBudget.toStringAsFixed(0);
+    _budgetController.text =
+        provider.monthlyBudget.toStringAsFixed(0);
   }
 
   @override
@@ -54,9 +81,7 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
     }
   }
 
-
-
-  // ── Get status color ─────────────────────────────────────────
+  // ── Status helpers ───────────────────────────────────────────
   Color _getStatusColor(String status) {
     switch (status) {
       case 'exceeded':
@@ -68,7 +93,6 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
     }
   }
 
-  // ── Get status icon ──────────────────────────────────────────
   IconData _getStatusIcon(String status) {
     switch (status) {
       case 'exceeded':
@@ -80,15 +104,14 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
     }
   }
 
-  // ── Get status message ───────────────────────────────────────
   String _getStatusMessage(String status, double remaining) {
     switch (status) {
       case 'exceeded':
-        return 'Budget exceeded by Rs. ${remaining.abs().toStringAsFixed(2)}!';
+        return 'Budget exceeded by $_currencySymbol ${remaining.abs().toStringAsFixed(2)}!';
       case 'warning':
-        return 'Only Rs. ${remaining.toStringAsFixed(2)} remaining!';
+        return 'Only $_currencySymbol ${remaining.toStringAsFixed(2)} remaining!';
       default:
-        return 'Rs. ${remaining.toStringAsFixed(2)} remaining — on track!';
+        return '$_currencySymbol ${remaining.toStringAsFixed(2)} remaining — on track!';
     }
   }
 
@@ -115,6 +138,74 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+
+            // ── Currency Selector ────────────────────────────
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Currency',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryGreen.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppTheme.primaryGreen.withOpacity(0.3),
+                        ),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedCurrency,
+                          isExpanded: true,
+                          icon: const Icon(
+                            Icons.keyboard_arrow_down,
+                            color: AppTheme.primaryGreen,
+                          ),
+                          items: _currencies.map((currency) {
+                            return DropdownMenuItem<String>(
+                              value: currency['code'],
+                              child: Row(
+                                children: [
+                                  Text(
+                                    currency['flag']!,
+                                    style: const TextStyle(fontSize: 20),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    '${currency['code']} (${currency['symbol']})',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (value) {
+                            if (value != null) {
+                              setState(() => _selectedCurrency = value);
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ).animate().fadeIn(delay: 50.ms),
+
+            const SizedBox(height: 12),
 
             // ── Budget Setting Card ──────────────────────────
             Card(
@@ -146,27 +237,23 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    //Bg image
-                    Center(
-                      child: Image.asset(
-                        'assets/images/budget.png',
-                        height: 180,
-                      ),
-                    ),
 
-                    // Budget amount or edit field
                     _isEditing
                         ? Row(
                       children: [
                         Expanded(
                           child: TextFormField(
                             controller: _budgetController,
-                            keyboardType: const TextInputType
-                                .numberWithOptions(decimal: true),
-                            decoration: const InputDecoration(
+                            keyboardType:
+                            const TextInputType.numberWithOptions(
+                                decimal: true),
+                            decoration: InputDecoration(
                               labelText: 'Monthly Budget',
-                              prefixText: 'Rs. ',
-                              prefixIcon: Icon(Icons.attach_money),
+                              prefixText: '$_currencySymbol ',
+                              prefixIcon: Text(
+                                _currencyFlag,
+                                style: const TextStyle(fontSize: 20),
+                              ),
                             ),
                             autofocus: true,
                           ),
@@ -186,9 +273,9 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                       MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Rs. ${provider.monthlyBudget.toStringAsFixed(2)}',
+                          '$_currencyFlag $_currencySymbol ${provider.monthlyBudget.toStringAsFixed(2)}',
                           style: const TextStyle(
-                            fontSize: 28,
+                            fontSize: 26,
                             fontWeight: FontWeight.bold,
                             color: AppTheme.primaryGreen,
                           ),
@@ -206,7 +293,7 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
               ),
             ).animate().fadeIn(delay: 100.ms).slideY(begin: 0.2, end: 0),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             // ── Status Banner ────────────────────────────────
             AnimatedContainer(
@@ -216,7 +303,8 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
               decoration: BoxDecoration(
                 color: statusColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: statusColor.withOpacity(0.5)),
+                border:
+                Border.all(color: statusColor.withOpacity(0.5)),
               ),
               child: Row(
                 children: [
@@ -257,7 +345,7 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
               ),
             ).animate().fadeIn(delay: 200.ms),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             // ── Progress Card ────────────────────────────────
             Card(
@@ -267,13 +355,13 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment:
+                      MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
                           'Budget Used',
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: theme.textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         Text(
                           '${provider.budgetUsedPercentage.toStringAsFixed(1)}%',
@@ -286,8 +374,6 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-
-                    // Progress bar
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
                       child: TweenAnimationBuilder<double>(
@@ -300,26 +386,27 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                             LinearProgressIndicator(
                               value: value,
                               minHeight: 16,
-                              backgroundColor: Colors.grey.withOpacity(0.2),
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                statusColor,
-                              ),
+                              backgroundColor:
+                              Colors.grey.withOpacity(0.2),
+                              valueColor:
+                              AlwaysStoppedAnimation<Color>(statusColor),
                             ),
                       ),
                     ),
                     const SizedBox(height: 12),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment:
+                      MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Spent: Rs. ${provider.totalExpense.toStringAsFixed(2)}',
+                          'Spent: $_currencySymbol ${provider.totalExpense.toStringAsFixed(2)}',
                           style: const TextStyle(
                             color: AppTheme.expenseRed,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                         Text(
-                          'Budget: Rs. ${provider.monthlyBudget.toStringAsFixed(2)}',
+                          'Budget: $_currencySymbol ${provider.monthlyBudget.toStringAsFixed(2)}',
                           style: const TextStyle(
                             color: AppTheme.primaryGreen,
                             fontWeight: FontWeight.w600,
@@ -332,7 +419,7 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
               ),
             ).animate().fadeIn(delay: 300.ms).slideY(begin: 0.2, end: 0),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             // ── Stats Row ────────────────────────────────────
             Row(
@@ -340,7 +427,8 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                 Expanded(
                   child: _StatCard(
                     title: 'Daily Average',
-                    value: 'Rs. ${provider.dailyAverage.toStringAsFixed(2)}',
+                    value:
+                    '$_currencySymbol ${provider.dailyAverage.toStringAsFixed(2)}',
                     icon: Icons.today,
                     color: Colors.blue,
                   ),
@@ -349,7 +437,8 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                 Expanded(
                   child: _StatCard(
                     title: 'Predicted Total',
-                    value: 'Rs. ${provider.predictedMonthlyExpense.toStringAsFixed(2)}',
+                    value:
+                    '$_currencySymbol ${provider.predictedMonthlyExpense.toStringAsFixed(2)}',
                     icon: Icons.trending_up,
                     color: provider.predictedMonthlyExpense >
                         provider.monthlyBudget
@@ -360,7 +449,7 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
               ],
             ).animate().fadeIn(delay: 400.ms),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             // ── Prediction Card ──────────────────────────────
             Card(
@@ -385,12 +474,8 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
-
-                    // Prediction gauge
                     _buildPredictionGauge(provider),
                     const SizedBox(height: 16),
-
-                    // Prediction message
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
@@ -404,8 +489,8 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                       child: Text(
                         provider.predictedMonthlyExpense >
                             provider.monthlyBudget
-                            ? '⚠️ At this rate you will exceed your budget by Rs. ${(provider.predictedMonthlyExpense - provider.monthlyBudget).toStringAsFixed(2)} this month!'
-                            : '✅ At this rate you will be Rs. ${(provider.monthlyBudget - provider.predictedMonthlyExpense).toStringAsFixed(2)} under budget this month!',
+                            ? '⚠️ At this rate you will exceed your budget by $_currencySymbol ${(provider.predictedMonthlyExpense - provider.monthlyBudget).toStringAsFixed(2)} this month!'
+                            : '✅ At this rate you will be $_currencySymbol ${(provider.monthlyBudget - provider.predictedMonthlyExpense).toStringAsFixed(2)} under budget this month!',
                         style: TextStyle(
                           color: provider.predictedMonthlyExpense >
                               provider.monthlyBudget
@@ -420,7 +505,7 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
               ),
             ).animate().fadeIn(delay: 500.ms).slideY(begin: 0.2, end: 0),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             // ── Category Breakdown ───────────────────────────
             if (provider.categoryBreakdown.isNotEmpty) ...[
@@ -450,27 +535,27 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
   Widget _buildPredictionGauge(TransactionProvider provider) {
     final predicted = provider.predictedMonthlyExpense;
     final budget = provider.monthlyBudget;
-    final maxValue = predicted > budget ? predicted * 1.2 : budget * 1.2;
+    final maxValue =
+    predicted > budget ? predicted * 1.2 : budget * 1.2;
 
     return Column(
       children: [
         Row(
           children: [
-            const Text(
+            Text(
               'Budget',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
             const Spacer(),
-            const Text(
+            Text(
               'Predicted',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
             ),
           ],
         ),
         const SizedBox(height: 8),
         Stack(
           children: [
-            // Background
             Container(
               height: 24,
               decoration: BoxDecoration(
@@ -478,7 +563,6 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            // Budget line
             FractionallySizedBox(
               widthFactor: (budget / maxValue).clamp(0.0, 1.0),
               child: Container(
@@ -489,7 +573,6 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                 ),
               ),
             ),
-            // Predicted line
             FractionallySizedBox(
               widthFactor: (predicted / maxValue).clamp(0.0, 1.0),
               child: Container(
@@ -519,8 +602,8 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  'Budget: Rs. ${budget.toStringAsFixed(0)}',
-                  style: const TextStyle(fontSize: 12),
+                  'Budget: $_currencySymbol ${budget.toStringAsFixed(0)}',
+                  style: const TextStyle(fontSize: 11),
                 ),
               ],
             ),
@@ -539,8 +622,8 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  'Predicted: Rs. ${predicted.toStringAsFixed(0)}',
-                  style: const TextStyle(fontSize: 12),
+                  'Predicted: $_currencySymbol ${predicted.toStringAsFixed(0)}',
+                  style: const TextStyle(fontSize: 11),
                 ),
               ],
             ),
@@ -569,7 +652,8 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
       children: breakdown.entries.toList().asMap().entries.map((entry) {
         final index = entry.key;
         final item = entry.value;
-        final percentage = total > 0 ? (item.value / total * 100) : 0.0;
+        final percentage =
+        total > 0 ? (item.value / total * 100) : 0.0;
         final color = colors[index % colors.length];
         final budgetShare = provider.monthlyBudget > 0
             ? (item.value / provider.monthlyBudget * 100)
@@ -601,7 +685,7 @@ class _BudgetPlannerScreenState extends State<BudgetPlannerScreen> {
                     ),
                   ),
                   Text(
-                    'Rs. ${item.value.toStringAsFixed(2)}',
+                    '$_currencySymbol ${item.value.toStringAsFixed(2)}',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: color,
@@ -683,7 +767,7 @@ class _StatCard extends StatelessWidget {
                 fontSize: 13,
                 color: color,
               ),
-              maxLines: 2,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
           ],

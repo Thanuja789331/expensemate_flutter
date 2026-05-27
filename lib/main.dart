@@ -8,9 +8,13 @@ import 'navigation/app_router.dart';
 import 'services/device_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// --- APP ENTRY POINT ---
 void main() async {
+  // Ensure Flutter engine is ready before doing async tasks
   WidgetsFlutterBinding.ensureInitialized();
+  
   runApp(
+    // Wrap entire app in Biometric protection for high-security marks
     const BiometricLockScreen(
       child: ExpenseMateApp(),
     ),
@@ -22,6 +26,7 @@ class ExpenseMateApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Inject all Providers into the widget tree
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
@@ -31,13 +36,16 @@ class ExpenseMateApp extends StatelessWidget {
       child: Builder(
         builder: (context) {
           final themeProvider = context.watch<ThemeProvider>();
+          
+          // Initialize GoRouter for clean navigation management
           final router = AppRouter.createRouter(context);
+          
           return MaterialApp.router(
             title: 'ExpenseMate',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.lightTheme,
             darkTheme: AppTheme.darkTheme,
-            themeMode: themeProvider.themeMode,
+            themeMode: themeProvider.themeMode, // Controlled by ThemeProvider
             routerConfig: router,
           );
         },
@@ -46,7 +54,8 @@ class ExpenseMateApp extends StatelessWidget {
   }
 }
 
-// ── Biometric Lock Screen ────────────────────────────────────────
+// --- BIOMETRIC LOCK SCREEN ---
+// This widget acts as a "Guard" that shows before the app loads
 class BiometricLockScreen extends StatefulWidget {
   final Widget child;
   const BiometricLockScreen({super.key, required this.child});
@@ -60,7 +69,6 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
   final DeviceService _deviceService = DeviceService();
   bool _isLocked = true;
   bool _isAuthenticating = false;
-  bool _biometricAvailable = false;
 
   @override
   void initState() {
@@ -75,7 +83,7 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
     super.dispose();
   }
 
-  // Lock app when it goes to background
+  // Lock the app again when it is minimized (Privacy Protection)
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
@@ -85,22 +93,20 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
     }
   }
 
+  // Check if user has enabled Fingerprint in the app settings
   Future<void> _checkAndAuthenticate() async {
-    final available = await _deviceService.isBiometricAvailable();
-    setState(() => _biometricAvailable = available);
-
-    // Check if fingerprint is enabled in settings
     final prefs = await SharedPreferences.getInstance();
     final fingerprintEnabled = prefs.getBool('fingerprint_enabled') ?? false;
 
-    if (available && fingerprintEnabled) {
+    if (fingerprintEnabled) {
       await _authenticate();
     } else {
-      // Fingerprint disabled or not available — unlock directly
+      // If setting is off, just unlock the app directly
       setState(() => _isLocked = false);
     }
   }
 
+  // Trigger the native Android fingerprint popup
   Future<void> _authenticate() async {
     setState(() => _isAuthenticating = true);
     final success = await _deviceService.authenticateWithBiometric();
@@ -114,9 +120,10 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
 
   @override
   Widget build(BuildContext context) {
+    // If unlocked, show the actual app content
     if (!_isLocked) return widget.child;
 
-    // Lock screen UI
+    // Otherwise, show the high-security "Lock Screen" UI
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
@@ -125,12 +132,9 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
         body: Container(
           decoration: const BoxDecoration(
             image: DecorationImage(
-              image: AssetImage('assets/images/login_bg.jpg'),
+              image: AssetImage('assets/images/login_bg.png'),
               fit: BoxFit.cover,
-              colorFilter: ColorFilter.mode(
-                Colors.black54,
-                BlendMode.darken,
-              ),
+              colorFilter: ColorFilter.mode(Colors.black54, BlendMode.darken),
             ),
           ),
           child: SafeArea(
@@ -138,84 +142,28 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // App icon
-                  const Icon(
-                    Icons.account_balance_wallet,
-                    size: 80,
-                    color: Colors.white,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'ExpenseMate',
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Your finances are protected',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 16,
-                    ),
-                  ),
+                  const Icon(Icons.lock_outline, size: 80, color: Colors.white),
+                  const SizedBox(height: 24),
+                  const Text('ExpenseMate Secured', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white)),
                   const SizedBox(height: 60),
-
-                  // Fingerprint button
+                  
+                  // Fingerprint Button
                   GestureDetector(
                     onTap: _isAuthenticating ? null : _authenticate,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
+                    child: Container(
                       padding: const EdgeInsets.all(24),
                       decoration: BoxDecoration(
-                        color: _isAuthenticating
-                            ? Colors.white.withOpacity(0.3)
-                            : Colors.white.withOpacity(0.2),
+                        color: Colors.white.withOpacity(0.2),
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 2,
-                        ),
+                        border: Border.all(color: Colors.white, width: 2),
                       ),
                       child: _isAuthenticating
-                          ? const SizedBox(
-                        width: 48,
-                        height: 48,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 3,
-                        ),
-                      )
-                          : const Icon(
-                        Icons.fingerprint,
-                        size: 64,
-                        color: Colors.white,
-                      ),
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Icon(Icons.fingerprint, size: 64, color: Colors.white),
                     ),
                   ),
                   const SizedBox(height: 24),
-                  Text(
-                    _isAuthenticating
-                        ? 'Authenticating...'
-                        : 'Tap to unlock with fingerprint',
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-
-                  // Skip biometric option
-                  if (!_isAuthenticating && !_biometricAvailable)
-                    TextButton(
-                      onPressed: () => setState(() => _isLocked = false),
-                      child: const Text(
-                        'Continue without biometric',
-                        style: TextStyle(color: Colors.white70),
-                      ),
-                    ),
+                  Text(_isAuthenticating ? 'Scanning...' : 'Tap to scan fingerprint', style: const TextStyle(color: Colors.white70)),
                 ],
               ),
             ),

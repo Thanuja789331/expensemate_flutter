@@ -64,13 +64,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     return Scaffold(
       body: Container(
+        width: double.infinity,
+        height: double.infinity,
         decoration: const BoxDecoration(
           image: DecorationImage(
             image: AssetImage('assets/images/register_bg.jpg'),
-            fit: BoxFit.fitHeight,
-            alignment: Alignment.topCenter,
+            fit: BoxFit.cover,
+            alignment: Alignment.center,
             colorFilter: ColorFilter.mode(
-              Colors.black54,
+              Colors.black45,
               BlendMode.darken,
             ),
           ),

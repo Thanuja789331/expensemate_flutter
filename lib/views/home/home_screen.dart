@@ -54,7 +54,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Load tips from API or local JSON ─────────────────────────
   Future<void> _loadTips() async {
-    final tips = await _apiService.getTipsFromApi();
+    // Always use local tips for home screen
+    // (real financial advice, not dummy API data)
+    final tips = await _apiService.getLocalTips();
     if (mounted) {
       setState(() => _tips = tips);
     }
@@ -214,9 +216,29 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               actions: [
                 IconButton(
-                  icon: const Icon(Icons.notifications_outlined,
-                      color: Colors.white),
-                  onPressed: () {},
+                  icon: const Icon(
+                    Icons.notifications_outlined,
+                    color: Colors.white,
+                  ),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: const Row(
+                          children: [
+                            Icon(Icons.notifications, color: Colors.white, size: 18),
+                            SizedBox(width: 8),
+                            Text('No new notifications'),
+                          ],
+                        ),
+                        backgroundColor: AppTheme.primaryGreen,
+                        behavior: SnackBarBehavior.floating,
+                        duration: const Duration(seconds: 2),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -647,10 +669,28 @@ class _TransactionTile extends StatelessWidget {
 
   const _TransactionTile({required this.transaction});
 
+  // ── Get currency symbol ──────────────────────────────────────
+  String _getCurrencySymbol(String currency) {
+    const symbols = {
+      'LKR': 'Rs',
+      'USD': '\$',
+      'EUR': '€',
+      'GBP': '£',
+      'AUD': 'A\$',
+      'CAD': 'C\$',
+      'JPY': '¥',
+      'INR': '₹',
+      'SGD': 'S\$',
+      'AED': 'د.إ',
+    };
+    return symbols[currency] ?? 'Rs';
+  }
+
   @override
   Widget build(BuildContext context) {
     final isExpense = transaction.type == 'expense';
     final color = isExpense ? AppTheme.expenseRed : AppTheme.incomeGreen;
+    final symbol = _getCurrencySymbol(transaction.currency ?? 'LKR');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -678,7 +718,7 @@ class _TransactionTile extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
         ),
         trailing: Text(
-          '${isExpense ? '-' : '+'}Rs. ${transaction.amount.toStringAsFixed(2)}',
+          '${isExpense ? '-' : '+'}$symbol ${transaction.amount.toStringAsFixed(2)}',
           style: TextStyle(
             color: color,
             fontWeight: FontWeight.bold,
@@ -699,10 +739,16 @@ class _EmptyState extends StatelessWidget {
         padding: const EdgeInsets.all(32),
         child: Column(
           children: [
-            Icon(
-              Icons.receipt_long_outlined,
-              size: 64,
-              color: Colors.grey[400],
+            Image.asset(
+              'assets/images/empty_wallet.png',
+              height: 120,
+              width: 120,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) => Icon(
+                Icons.receipt_long_outlined,
+                size: 64,
+                color: Colors.grey[400],
+              ),
             ),
             const SizedBox(height: 16),
             Text(

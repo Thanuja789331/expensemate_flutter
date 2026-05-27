@@ -54,10 +54,10 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     {'code': 'USD', 'symbol': '\$', 'flag': '🇺🇸'},
     {'code': 'EUR', 'symbol': '€', 'flag': '🇪🇺'},
     {'code': 'GBP', 'symbol': '£', 'flag': '🇬🇧'},
+    {'code': 'INR', 'symbol': '₹', 'flag': '🇮🇳'},
     {'code': 'AUD', 'symbol': 'A\$', 'flag': '🇦🇺'},
     {'code': 'CAD', 'symbol': 'C\$', 'flag': '🇨🇦'},
     {'code': 'JPY', 'symbol': '¥', 'flag': '🇯🇵'},
-    {'code': 'INR', 'symbol': '₹', 'flag': '🇮🇳'},
     {'code': 'SGD', 'symbol': 'S\$', 'flag': '🇸🇬'},
     {'code': 'AED', 'symbol': 'د.إ', 'flag': '🇦🇪'},
   ];
@@ -70,13 +70,25 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     if (_isEditMode) {
       final t = widget.existingTransaction!;
       _selectedType = t.type;
-      _selectedCategory = t.category;
+      
+      // Ensure category exists in list
+      if (_categories.contains(t.category)) {
+        _selectedCategory = t.category;
+      } else {
+        _selectedCategory = 'Other';
+      }
+
       _amountController.text = t.amount.toString();
       _noteController.text = t.note ?? '';
-      _selectedDate = DateTime.tryParse(t.date) ?? DateTime.now();
+      try {
+        _selectedDate = DateTime.parse(t.date);
+      } catch (e) {
+        _selectedDate = DateTime.now();
+      }
       _imagePath = t.imagePath;
       _latitude = t.latitude;
       _longitude = t.longitude;
+      _selectedCurrency = t.currency;
     }
   }
 
@@ -87,7 +99,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     super.dispose();
   }
 
-  // ── Pick Date ────────────────────────────────────────────────
   Future<void> _pickDate() async {
     final picked = await showDatePicker(
       context: context,
@@ -97,9 +108,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: Theme.of(context)
-                .colorScheme
-                .copyWith(primary: AppTheme.primaryGreen),
+            colorScheme: Theme.of(context).colorScheme.copyWith(
+              primary: AppTheme.primaryGreen,
+            ),
           ),
           child: child!,
         );
@@ -108,7 +119,6 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     if (picked != null) setState(() => _selectedDate = picked);
   }
 
-  // ── Pick Image ───────────────────────────────────────────────
   Future<void> _pickImage(bool isCamera) async {
     final path = isCamera
         ? await _deviceService.pickImageFromCamera()
@@ -118,135 +128,152 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     }
   }
 
-  // ── Get Location ─────────────────────────────────────────────
   Future<void> _getLocation() async {
     setState(() => _isLoadingLocation = true);
-    final position = await _deviceService.getCurrentLocation();
-    if (mounted) {
-      setState(() {
-        _isLoadingLocation = false;
-        if (position != null) {
-          _latitude = position.latitude;
-          _longitude = position.longitude;
-        }
-      });
+    try {
+      final position = await _deviceService.getCurrentLocation();
+      if (mounted) {
+        setState(() {
+          _isLoadingLocation = false;
+          if (position != null) {
+            _latitude = position.latitude;
+            _longitude = position.longitude;
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingLocation = false);
     }
   }
 
-  // ── Show Image Picker Bottom Sheet ───────────────────────────
   void _showImagePickerOptions() {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Attach Receipt',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _ImagePickerOption(
-                  icon: Icons.camera_alt,
-                  label: 'Camera',
-                  onTap: () {
-                    Navigator.pop(context);
-                    _pickImage(true);
-                  },
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Attach Receipt',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
                 ),
-                _ImagePickerOption(
-                  icon: Icons.photo_library,
-                  label: 'Gallery',
-                  onTap: () {
-                    Navigator.pop(context);
-                    _pickImage(false);
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-          ],
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _ImagePickerOption(
+                    icon: Icons.camera_alt,
+                    label: 'Camera',
+                    onTap: () {
+                      Navigator.pop(context);
+                      _pickImage(true);
+                    },
+                  ),
+                  _ImagePickerOption(
+                    icon: Icons.photo_library,
+                    label: 'Gallery',
+                    onTap: () {
+                      Navigator.pop(context);
+                      _pickImage(false);
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // ── Save Transaction ─────────────────────────────────────────
   Future<void> _saveTransaction() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
-    final authProvider = context.read<AuthProvider>();
-    final transactionProvider = context.read<TransactionProvider>();
-    bool success;
+    try {
+      final authProvider = context.read<AuthProvider>();
+      final transactionProvider = context.read<TransactionProvider>();
+      
+      final amount = double.parse(_amountController.text);
+      final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
+      
+      bool success;
 
-    if (_isEditMode) {
-      final updated = widget.existingTransaction!.copyWith(
-        type: _selectedType,
-        category: _selectedCategory,
-        amount: double.parse(_amountController.text),
-        date: DateFormat('yyyy-MM-dd').format(_selectedDate),
-        note: _noteController.text.isEmpty ? null : _noteController.text,
-        imagePath: _imagePath,
-        latitude: _latitude,
-        longitude: _longitude,
-      );
-      success = await transactionProvider.updateTransaction(updated);
-    } else {
-      success = await transactionProvider.addTransaction(
-        userId: authProvider.userId,
-        type: _selectedType,
-        category: _selectedCategory,
-        amount: double.parse(_amountController.text),
-        date: DateFormat('yyyy-MM-dd').format(_selectedDate),
-        note: _noteController.text.isEmpty ? null : _noteController.text,
-        imagePath: _imagePath,
-        latitude: _latitude,
-        longitude: _longitude,
-      );
-    }
+      if (_isEditMode) {
+        final updated = widget.existingTransaction!.copyWith(
+          type: _selectedType,
+          category: _selectedCategory,
+          amount: amount,
+          date: dateStr,
+          note: _noteController.text.trim(),
+          imagePath: _imagePath,
+          latitude: _latitude,
+          longitude: _longitude,
+          currency: _selectedCurrency,
+        );
+        success = await transactionProvider.updateTransaction(updated);
+      } else {
+        success = await transactionProvider.addTransaction(
+          userId: authProvider.userId,
+          type: _selectedType,
+          category: _selectedCategory,
+          amount: amount,
+          date: dateStr,
+          note: _noteController.text.trim(),
+          imagePath: _imagePath,
+          latitude: _latitude,
+          longitude: _longitude,
+          currency: _selectedCurrency,
+        );
+      }
 
-    setState(() => _isLoading = false);
-
-    if (success && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle, color: Colors.white, size: 18),
-              const SizedBox(width: 8),
-              Text(_isEditMode
-                  ? 'Transaction updated!'
-                  : 'Transaction added!'),
-            ],
+      if (success && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                Text(_isEditMode ? 'Transaction updated' : 'Transaction saved'),
+              ],
+            ),
+            backgroundColor: AppTheme.primaryGreen,
+            behavior: SnackBarBehavior.floating,
           ),
-          backgroundColor: AppTheme.primaryGreen,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+        );
+        context.go('/dashboard');
+      } else if (mounted) {
+        // Show error if failed
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(transactionProvider.errorMessage ?? 'Failed to save transaction'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
           ),
-        ),
-      );
-      context.go('/dashboard');
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  // ── Build ────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final isLandscape =
-        MediaQuery.of(context).orientation == Orientation.landscape;
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
 
     return Scaffold(
       appBar: AppBar(
@@ -256,16 +283,15 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
           onPressed: () => context.go('/dashboard'),
         ),
       ),
-      body: Form(
-        key: _formKey,
-        child: isLandscape
-            ? _buildLandscapeLayout()
-            : _buildPortraitLayout(),
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: isLandscape ? _buildLandscapeLayout() : _buildPortraitLayout(),
+        ),
       ),
     );
   }
 
-  // ── Portrait Layout ──────────────────────────────────────────
   Widget _buildPortraitLayout() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -273,31 +299,32 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildTypeToggle(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           _buildAmountField(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           _buildCategoryDropdown(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           _buildDatePicker(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           _buildNoteField(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           _buildImagePicker(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           _buildLocationButton(),
-          const SizedBox(height: 24),
+          const SizedBox(height: 32),
           _buildSaveButton(),
-          const SizedBox(height: 80),
+          const SizedBox(height: 40),
         ],
       ),
     );
   }
 
-  // ── Landscape Layout ─────────────────────────────────────────
   Widget _buildLandscapeLayout() {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
+          flex: 1,
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -315,6 +342,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         ),
         const VerticalDivider(width: 1),
         Expanded(
+          flex: 1,
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -324,7 +352,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                 _buildNoteField(),
                 const SizedBox(height: 16),
                 _buildImagePicker(),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
                 _buildSaveButton(),
               ],
             ),
@@ -334,100 +362,37 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     );
   }
 
-  // ── Type Toggle ──────────────────────────────────────────────
   Widget _buildTypeToggle() {
     return Row(
       children: [
-        Expanded(
-          child: GestureDetector(
-            onTap: () => setState(() => _selectedType = 'expense'),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: _selectedType == 'expense'
-                    ? AppTheme.expenseRed
-                    : Colors.grey.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.arrow_upward,
-                    color: _selectedType == 'expense'
-                        ? Colors.white
-                        : Colors.grey,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Expense',
-                    style: TextStyle(
-                      color: _selectedType == 'expense'
-                          ? Colors.white
-                          : Colors.grey,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        _TypeButton(
+          label: 'Expense',
+          icon: Icons.arrow_upward,
+          color: AppTheme.expenseRed,
+          isSelected: _selectedType == 'expense',
+          onTap: () => setState(() => _selectedType = 'expense'),
         ),
         const SizedBox(width: 12),
-        Expanded(
-          child: GestureDetector(
-            onTap: () => setState(() => _selectedType = 'income'),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: _selectedType == 'income'
-                    ? AppTheme.incomeGreen
-                    : Colors.grey.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.arrow_downward,
-                    color: _selectedType == 'income'
-                        ? Colors.white
-                        : Colors.grey,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Income',
-                    style: TextStyle(
-                      color: _selectedType == 'income'
-                          ? Colors.white
-                          : Colors.grey,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        _TypeButton(
+          label: 'Income',
+          icon: Icons.arrow_downward,
+          color: AppTheme.incomeGreen,
+          isSelected: _selectedType == 'income',
+          onTap: () => setState(() => _selectedType = 'income'),
         ),
       ],
-    ).animate().fadeIn(delay: 100.ms);
+    ).animate().fadeIn();
   }
 
-  // ── Amount Field ─────────────────────────────────────────────
   Widget _buildAmountField() {
     final selectedCurrency = _currencies.firstWhere(
-          (c) => c['code'] == _selectedCurrency,
+      (c) => c['code'] == _selectedCurrency,
       orElse: () => _currencies.first,
     );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Currency selector
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
@@ -439,60 +404,44 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             child: DropdownButton<String>(
               value: _selectedCurrency,
               isExpanded: true,
-              icon: const Icon(Icons.keyboard_arrow_down),
-              items: _currencies.map((currency) {
-                return DropdownMenuItem<String>(
-                  value: currency['code'],
-                  child: Row(
-                    children: [
-                      Text(
-                        currency['flag']!,
-                        style: const TextStyle(fontSize: 20),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        '${currency['code']} (${currency['symbol']})',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-              onChanged: (value) {
-                if (value != null) {
-                  setState(() => _selectedCurrency = value);
-                }
-              },
+              items: _currencies.map((c) => DropdownMenuItem(
+                value: c['code'],
+                child: Text('${c['flag']} ${c['code']} (${c['symbol']})'),
+              )).toList(),
+              onChanged: (v) => setState(() => _selectedCurrency = v!),
             ),
           ),
         ),
-        const SizedBox(height: 8),
-
-        // Amount field
+        const SizedBox(height: 12),
         TextFormField(
           controller: _amountController,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           decoration: InputDecoration(
             labelText: 'Amount',
-            hintText: '0.00',
-            prefixIcon: const Icon(Icons.attach_money),
-            prefixText: '${selectedCurrency['symbol']} ',
+            prefixIcon: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                selectedCurrency['symbol']!,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: _selectedType == 'expense' ? AppTheme.expenseRed : AppTheme.incomeGreen,
+                ),
+              ),
+            ),
           ),
-          validator: (value) {
-            if (value == null || value.isEmpty) return 'Please enter an amount';
-            if (double.tryParse(value) == null) return 'Please enter a valid number';
-            if (double.parse(value) <= 0) return 'Amount must be greater than 0';
+          validator: (v) {
+            if (v == null || v.isEmpty) return 'Please enter an amount';
+            if (double.tryParse(v) == null) return 'Enter a valid number';
+            if (double.parse(v) <= 0) return 'Amount must be positive';
             return null;
           },
         ),
       ],
-    ).animate().fadeIn(delay: 200.ms);
+    ).animate().fadeIn(delay: 100.ms);
   }
 
-  // ── Category Dropdown ────────────────────────────────────────
   Widget _buildCategoryDropdown() {
     return DropdownButtonFormField<String>(
       value: _selectedCategory,
@@ -500,21 +449,17 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         labelText: 'Category',
         prefixIcon: Icon(Icons.category_outlined),
       ),
-      items: _categories
-          .map((cat) => DropdownMenuItem(value: cat, child: Text(cat)))
-          .toList(),
-      onChanged: (value) {
-        if (value != null) setState(() => _selectedCategory = value);
-      },
-    ).animate().fadeIn(delay: 300.ms);
+      items: _categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+      onChanged: (v) => setState(() => _selectedCategory = v!),
+    ).animate().fadeIn(delay: 200.ms);
   }
 
-  // ── Date Picker ──────────────────────────────────────────────
   Widget _buildDatePicker() {
-    return GestureDetector(
+    return InkWell(
       onTap: _pickDate,
+      borderRadius: BorderRadius.circular(12),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Theme.of(context).inputDecorationTheme.fillColor,
           borderRadius: BorderRadius.circular(12),
@@ -522,202 +467,181 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         ),
         child: Row(
           children: [
-            const Icon(Icons.calendar_today_outlined, color: Colors.grey),
+            const Icon(Icons.calendar_today_outlined, color: Colors.grey, size: 20),
             const SizedBox(width: 12),
-            Text(
-              DateFormat('dd MMM yyyy').format(_selectedDate),
-              style: const TextStyle(fontSize: 16),
-            ),
+            Text(DateFormat('dd MMMM yyyy').format(_selectedDate), style: const TextStyle(fontSize: 16)),
             const Spacer(),
-            const Icon(Icons.arrow_drop_down, color: Colors.grey),
+            const Icon(Icons.edit_outlined, color: AppTheme.primaryGreen, size: 18),
           ],
         ),
       ),
-    ).animate().fadeIn(delay: 400.ms);
+    ).animate().fadeIn(delay: 300.ms);
   }
 
-  // ── Note Field ───────────────────────────────────────────────
   Widget _buildNoteField() {
     return TextFormField(
       controller: _noteController,
       maxLines: 2,
       decoration: const InputDecoration(
         labelText: 'Note (optional)',
-        hintText: 'Add a note...',
         prefixIcon: Icon(Icons.note_outlined),
+        hintText: 'What was this for?',
       ),
-    ).animate().fadeIn(delay: 500.ms);
+    ).animate().fadeIn(delay: 400.ms);
   }
 
-  // ── Image Picker ─────────────────────────────────────────────
   Widget _buildImagePicker() {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        GestureDetector(
+        InkWell(
           onTap: _showImagePickerOptions,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Theme.of(context).inputDecorationTheme.fillColor,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.withOpacity(0.3)),
+              border: Border.all(
+                color: _imagePath != null ? AppTheme.primaryGreen : Colors.grey.withOpacity(0.3),
+              ),
             ),
             child: Row(
               children: [
-                const Icon(Icons.receipt_outlined, color: Colors.grey),
+                Icon(Icons.receipt_long_outlined, color: _imagePath != null ? AppTheme.primaryGreen : Colors.grey),
                 const SizedBox(width: 12),
-                Text(
-                  _imagePath != null ? 'Receipt attached' : 'Attach Receipt',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: _imagePath != null
-                        ? AppTheme.primaryGreen
-                        : Colors.grey,
-                  ),
-                ),
+                Text(_imagePath != null ? 'Receipt Attached' : 'Attach Receipt Image'),
                 const Spacer(),
-                Icon(
-                  _imagePath != null
-                      ? Icons.check_circle
-                      : Icons.add_photo_alternate,
-                  color: _imagePath != null
-                      ? AppTheme.primaryGreen
-                      : Colors.grey,
-                ),
+                if (_imagePath != null) 
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 20, color: Colors.red),
+                    onPressed: () => setState(() => _imagePath = null),
+                  )
+                else 
+                  const Icon(Icons.add_a_photo_outlined, size: 20, color: Colors.grey),
               ],
             ),
           ),
         ),
         if (_imagePath != null) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: Image.file(
-              File(_imagePath!),
-              height: 120,
-              width: double.infinity,
-              fit: BoxFit.cover,
-            ),
+            child: Image.file(File(_imagePath!), height: 150, width: double.infinity, fit: BoxFit.cover),
           ),
-        ],
+        ]
       ],
-    ).animate().fadeIn(delay: 600.ms);
+    ).animate().fadeIn(delay: 500.ms);
   }
 
-  // ── Location Button ──────────────────────────────────────────
   Widget _buildLocationButton() {
-    return GestureDetector(
+    return InkWell(
       onTap: _isLoadingLocation ? null : _getLocation,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: Theme.of(context).inputDecorationTheme.fillColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: _latitude != null
-                ? AppTheme.primaryGreen.withOpacity(0.5)
-                : Colors.grey.withOpacity(0.3),
+            color: _latitude != null ? AppTheme.primaryGreen : Colors.grey.withOpacity(0.3),
           ),
         ),
         child: Row(
           children: [
-            Icon(
-              Icons.location_on_outlined,
-              color: _latitude != null ? AppTheme.primaryGreen : Colors.grey,
-            ),
+            Icon(Icons.location_on_outlined, color: _latitude != null ? AppTheme.primaryGreen : Colors.grey),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                _isLoadingLocation
-                    ? 'Getting location...'
-                    : _latitude != null
-                    ? _deviceService.formatLocation(_latitude, _longitude)
-                    : 'Tag Location (GPS)',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: _latitude != null
-                      ? AppTheme.primaryGreen
-                      : Colors.grey,
-                ),
+                _isLoadingLocation ? 'Getting location...' : 
+                _latitude != null ? 'Location tagged (${_latitude!.toStringAsFixed(3)}, ${_longitude!.toStringAsFixed(3)})' : 'Tag GPS Location'
               ),
             ),
             if (_isLoadingLocation)
-              const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
+              const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+            else if (_latitude != null)
+              IconButton(
+                icon: const Icon(Icons.close, size: 20, color: Colors.red),
+                onPressed: () => setState(() { _latitude = null; _longitude = null; }),
               )
-            else
-              Icon(
-                _latitude != null ? Icons.check_circle : Icons.my_location,
-                color:
-                _latitude != null ? AppTheme.primaryGreen : Colors.grey,
-              ),
           ],
         ),
       ),
-    ).animate().fadeIn(delay: 700.ms);
+    ).animate().fadeIn(delay: 600.ms);
   }
 
-  // ── Save Button ──────────────────────────────────────────────
   Widget _buildSaveButton() {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _isPressed = true),
-      onTapUp: (_) => setState(() => _isPressed = false),
-      onTapCancel: () => setState(() => _isPressed = false),
-      child: AnimatedScale(
-        scale: _isPressed ? 0.95 : 1.0,
-        duration: const Duration(milliseconds: 150),
-        child: ElevatedButton(
-          onPressed: _isLoading ? null : _saveTransaction,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _selectedType == 'expense'
-                ? AppTheme.expenseRed
-                : AppTheme.incomeGreen,
-          ),
-          child: _isLoading
-              ? const SizedBox(
-            height: 20,
-            width: 20,
-            child: CircularProgressIndicator(
-              color: Colors.white,
-              strokeWidth: 2,
-            ),
-          )
-              : Text(
-              _isEditMode ? 'Update Transaction' : 'Save Transaction'),
-        ),
+    return ElevatedButton(
+      onPressed: _isLoading ? null : _saveTransaction,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _selectedType == 'expense' ? AppTheme.expenseRed : AppTheme.incomeGreen,
+        minimumSize: const Size(double.infinity, 56),
       ),
-    ).animate().fadeIn(delay: 800.ms);
+      child: _isLoading
+          ? const CircularProgressIndicator(color: Colors.white)
+          : Text(_isEditMode ? 'Update Transaction' : 'Save Transaction', style: const TextStyle(fontSize: 18)),
+    ).animate().fadeIn(delay: 700.ms);
   }
 }
 
-// ── Image Picker Option Widget ───────────────────────────────────
-class _ImagePickerOption extends StatelessWidget {
-  final IconData icon;
+class _TypeButton extends StatelessWidget {
   final String label;
+  final IconData icon;
+  final Color color;
+  final bool isSelected;
   final VoidCallback onTap;
 
-  const _ImagePickerOption({
-    required this.icon,
+  const _TypeButton({
     required this.label,
+    required this.icon,
+    required this.color,
+    required this.isSelected,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(
+            color: isSelected ? color : color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: isSelected ? color : Colors.transparent),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: isSelected ? Colors.white : color, size: 20),
+              const SizedBox(width: 8),
+              Text(label, style: TextStyle(color: isSelected ? Colors.white : color, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ImagePickerOption extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _ImagePickerOption({required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
       onTap: onTap,
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryGreen.withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: AppTheme.primaryGreen, size: 32),
+            decoration: BoxDecoration(color: AppTheme.primaryGreen.withOpacity(0.1), shape: BoxShape.circle),
+            child: Icon(icon, color: AppTheme.primaryGreen, size: 30),
           ),
           const SizedBox(height: 8),
           Text(label),

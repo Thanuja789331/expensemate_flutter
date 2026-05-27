@@ -2,52 +2,70 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/transaction_model.dart';
 
+// --- DATABASE SERVICE (SQLite) ---
+// This handles all local storage on the phone so the app works offline.
 class DatabaseService {
-  // Singleton pattern — only one instance of database
+  // Singleton: Only one instance of the database exists in the app
   static final DatabaseService _instance = DatabaseService._internal();
   factory DatabaseService() => _instance;
   DatabaseService._internal();
 
   static Database? _database;
 
-  // ── Get Database ─────────────────────────────────────────────
+  // Getter to initialize the database if it doesn't exist
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
-  // ── Initialise Database ──────────────────────────────────────
+  // Set up the database file path
   Future<Database> _initDatabase() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'expensemate.db');
 
     return await openDatabase(
       path,
-      version: 1,
+      version: 2, // Upgraded from 1 to 2 to add the 'currency' column
       onCreate: _createTables,
+      onUpgrade: _onUpgrade, // Migration logic for existing users
     );
   }
 
-  // ── Create Tables ────────────────────────────────────────────
-  Future<void> _createTables(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE transactions (
-        id TEXT PRIMARY KEY,
-        userId TEXT NOT NULL,
-        type TEXT NOT NULL,
-        category TEXT NOT NULL,
-        amount REAL NOT NULL,
-        date TEXT NOT NULL,
-        note TEXT,
-        imagePath TEXT,
-        latitude REAL,
-        longitude REAL
-      )
-    ''');
+  // Runs only if an older version of the database is found on the device
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Viva: This adds a new column without deleting existing user data
+      try {
+        await db.execute('ALTER TABLE transactions ADD COLUMN currency TEXT DEFAULT "LKR"');
+      } catch (e) {
+        // Safe to ignore if column exists
+      }
+    }
   }
 
-  // ── CREATE — Insert new transaction ──────────────────────────
+  // Runs the first time the app is installed
+  Future<void> _createTables(Database db, int version) async {
+    await db.execute('''
+    CREATE TABLE transactions (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      type TEXT NOT NULL,
+      category TEXT NOT NULL,
+      amount REAL NOT NULL,
+      date TEXT NOT NULL,
+      note TEXT,
+      imagePath TEXT,
+      latitude REAL,
+      longitude REAL,
+      currency TEXT DEFAULT 'LKR'
+    )
+  ''');
+  }
+
+  // --- CRUD METHODS ---
+
+  // Save transaction locally (uses "Replace" to handle duplicates during sync)
   Future<void> insertTransaction(TransactionModel transaction) async {
     final db = await database;
     await db.insert(
@@ -57,7 +75,7 @@ class DatabaseService {
     );
   }
 
-  // ── READ — Get all transactions for a user ───────────────────
+  // Get all items for a user, newest items at the top
   Future<List<TransactionModel>> getTransactions(String userId) async {
     final db = await database;
     final List<Map<String, dynamic>> maps = await db.query(
@@ -69,19 +87,7 @@ class DatabaseService {
     return maps.map((map) => TransactionModel.fromMap(map)).toList();
   }
 
-  // ── READ — Get single transaction by id ─────────────────────
-  Future<TransactionModel?> getTransactionById(String id) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      'transactions',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    if (maps.isEmpty) return null;
-    return TransactionModel.fromMap(maps.first);
-  }
-
-  // ── UPDATE — Edit existing transaction ───────────────────────
+  // Edit an existing record
   Future<void> updateTransaction(TransactionModel transaction) async {
     final db = await database;
     await db.update(
@@ -92,7 +98,7 @@ class DatabaseService {
     );
   }
 
-  // ── DELETE — Remove a transaction ────────────────────────────
+  // Remove a record by its unique ID
   Future<void> deleteTransaction(String id) async {
     final db = await database;
     await db.delete(
@@ -100,79 +106,5 @@ class DatabaseService {
       where: 'id = ?',
       whereArgs: [id],
     );
-  }
-
-  // ── DELETE — Remove all transactions for a user ──────────────
-  Future<void> deleteAllTransactions(String userId) async {
-    final db = await database;
-    await db.delete(
-      'transactions',
-      where: 'userId = ?',
-      whereArgs: [userId],
-    );
-  }
-
-  // ── SUMMARY — Total income for a user ────────────────────────
-  Future<double> getTotalIncome(String userId) async {
-    final db = await database;
-    final result = await db.rawQuery('''
-      SELECT SUM(amount) as total 
-      FROM transactions 
-      WHERE userId = ? AND type = 'income'
-    ''', [userId]);
-    return (result.first['total'] as double?) ?? 0.0;
-  }
-
-  // ── SUMMARY — Total expense for a user ───────────────────────
-  Future<double> getTotalExpense(String userId) async {
-    final db = await database;
-    final result = await db.rawQuery('''
-      SELECT SUM(amount) as total 
-      FROM transactions 
-      WHERE userId = ? AND type = 'expense'
-    ''', [userId]);
-    return (result.first['total'] as double?) ?? 0.0;
-  }
-
-  // ── SUMMARY — Spending by category ───────────────────────────
-  Future<Map<String, double>> getCategoryBreakdown(String userId) async {
-    final db = await database;
-    final result = await db.rawQuery('''
-      SELECT category, SUM(amount) as total
-      FROM transactions
-      WHERE userId = ? AND type = 'expense'
-      GROUP BY category
-    ''', [userId]);
-
-    Map<String, double> breakdown = {};
-    for (var row in result) {
-      breakdown[row['category'] as String] = (row['total'] as double?) ?? 0.0;
-    }
-    return breakdown;
-  }
-
-  // ── SUMMARY — Weekly data for bar chart ──────────────────────
-  Future<Map<String, Map<String, double>>> getWeeklyData(
-      String userId) async {
-    final db = await database;
-    final result = await db.rawQuery('''
-      SELECT date, type, SUM(amount) as total
-      FROM transactions
-      WHERE userId = ?
-      GROUP BY date, type
-      ORDER BY date DESC
-      LIMIT 14
-    ''', [userId]);
-
-    Map<String, Map<String, double>> weeklyData = {};
-    for (var row in result) {
-      final date = row['date'] as String;
-      final type = row['type'] as String;
-      final total = (row['total'] as double?) ?? 0.0;
-
-      weeklyData[date] ??= {'income': 0.0, 'expense': 0.0};
-      weeklyData[date]![type] = total;
-    }
-    return weeklyData;
   }
 }

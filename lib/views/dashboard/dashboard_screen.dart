@@ -9,9 +9,11 @@ import '../../providers/auth_provider.dart';
 import '../../providers/transaction_provider.dart';
 import '../../theme/app_theme.dart';
 import 'dart:async';
-import 'package:sensors_plus/sensors_plus.dart';
 import '../../services/device_service.dart';
 
+// --- DASHBOARD SCREEN ---
+// This is the main screen showing the list of transactions.
+// It includes: Search, Filters, and "Shake to Refresh".
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -21,19 +23,21 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final _searchController = TextEditingController();
-  String _selectedFilter = 'all';
-  String _searchQuery = '';
   final DeviceService _deviceService = DeviceService();
   StreamSubscription? _shakeSubscription;
-  double _accelX = 0, _accelY = 0, _accelZ = 0;
+  
+  String _selectedFilter = 'all';
+  String _searchQuery = '';
   bool _isShaking = false;
-
 
   @override
   void initState() {
     super.initState();
-    _loadData();
-    _initSensors();
+    // Load initial data from SQLite
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
+    
+    // Set up Accelerometer Sensor listener for "Shake to Refresh" feature
+    _initShakeSensor();
   }
 
   @override
@@ -43,899 +47,187 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  Future<void> _loadData() async {
-    final authProvider = context.read<AuthProvider>();
-    final transactionProvider = context.read<TransactionProvider>();
-    await transactionProvider.loadTransactions(authProvider.userId);
+  void _loadData() {
+    final auth = context.read<AuthProvider>();
+    final provider = context.read<TransactionProvider>();
+    provider.loadTransactions(auth.userId);
   }
 
-  // ── Init accelerometer ───────────────────────────────────────
-  void _initSensors() {
-
-    // Live accelerometer values
-    accelerometerEventStream().listen((event) {
-
-      if (mounted) {
-        setState(() {
-          _accelX = event.x;
-          _accelY = event.y;
-          _accelZ = event.z;
-        });
-      }
-
-    });
-
-    // Shake to refresh
+  // --- Sensor Logic (VIVA: Accelerometer) ---
+  void _initShakeSensor() {
     _shakeSubscription = _deviceService.shakeStream.listen((_) {
-
-      if (mounted) {
-
+      if (mounted && !_isShaking) {
         setState(() => _isShaking = true);
-
-        _loadData();
-
+        _loadData(); // Reload data when phone is shaken
+        
+        // Give tactile feedback via a snackbar
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.refresh, color: Colors.white, size: 18),
-                SizedBox(width: 8),
-                Text('Dashboard refreshed!'),
-              ],
-            ),
-            duration: const Duration(seconds: 1),
-            behavior: SnackBarBehavior.floating,
-            backgroundColor: AppTheme.primaryGreen,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-          ),
+          const SnackBar(content: Text('Refreshing via Shake!'), duration: Duration(seconds: 1), behavior: SnackBarBehavior.floating),
         );
-
+        
+        // Reset shaking state after a second
         Future.delayed(const Duration(seconds: 1), () {
-
-          if (mounted) {
-            setState(() => _isShaking = false);
-          }
-
+          if (mounted) setState(() => _isShaking = false);
         });
-
       }
-
     });
-
   }
 
-  // ── Get filtered transactions ────────────────────────────────
-  List<TransactionModel> _getFilteredTransactions(
-      TransactionProvider provider) {
-    List<TransactionModel> transactions;
-
-    if (_searchQuery.isNotEmpty) {
-      transactions = provider.searchTransactions(_searchQuery);
-    } else {
-      transactions = provider.filterTransactions(_selectedFilter);
-    }
-
-    return transactions;
-  }
-
-  // ── Show delete confirmation ─────────────────────────────────
-  void _showDeleteDialog(BuildContext context, TransactionModel transaction) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        title: const Text('Delete Transaction'),
-        content: const Text(
-          'Are you sure you want to delete this transaction? This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              final provider = context.read<TransactionProvider>();
-              await provider.deleteTransaction(transaction.id);
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Row(
-                      children: [
-                        Icon(Icons.delete, color: Colors.white, size: 18),
-                        SizedBox(width: 8),
-                        Text('Transaction deleted'),
-                      ],
-                    ),
-                    backgroundColor: Colors.red,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
+  // Helper to filter the list based on type (Income/Expense) and search text
+  List<TransactionModel> _getFilteredItems(TransactionProvider provider) {
+    if (_searchQuery.isNotEmpty) return provider.searchTransactions(_searchQuery);
+    return provider.filterTransactions(_selectedFilter);
   }
 
   @override
   Widget build(BuildContext context) {
-    final transactionProvider = context.watch<TransactionProvider>();
-    final transactions = _getFilteredTransactions(transactionProvider);
-    final theme = Theme.of(context);
+    final provider = context.watch<TransactionProvider>();
+    final transactions = _getFilteredItems(provider);
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Transactions'),
-        automaticallyImplyLeading: false,
+        title: const Text('Recent Transactions'),
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: () => context.go('/add-expense'),
+            onPressed: () => context.push('/add-expense'),
           ),
         ],
       ),
       body: Column(
         children: [
-          // ── Live Accelerometer Card ──────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: _isShaking
-                    ? AppTheme.primaryGreen.withOpacity(0.2)
-                    : Theme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: _isShaking
-                      ? AppTheme.primaryGreen
-                      : Colors.grey.withOpacity(0.2),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.vibration,
-                        color: _isShaking
-                            ? AppTheme.primaryGreen
-                            : Colors.grey,
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        _isShaking
-                            ? '📳 Shaking — Refreshing...'
-                            : 'Accelerometer — Shake to Refresh',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: _isShaking
-                              ? AppTheme.primaryGreen
-                              : Colors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      _AccelValue(label: 'X', value: _accelX, color: Colors.red),
-                      const SizedBox(width: 12),
-                      _AccelValue(label: 'Y', value: _accelY, color: Colors.green),
-                      const SizedBox(width: 12),
-                      _AccelValue(label: 'Z', value: _accelZ, color: Colors.blue),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
+          // Banner Image (Optimized Scale)
+          if (!isLandscape) _buildBanner(),
 
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: Stack(
-                children: [
+          // --- Search & Filtering UI ---
+          _buildFilters(),
 
-                  Image.asset(
-                    'assets/images/dashboard_banner.jpg',
-                    height: 180,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                  ),
-
-                  Container(
-                    height: 180,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.black.withOpacity(0.6),
-                          Colors.transparent,
-                        ],
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                      ),
-                    ),
-                  ),
-
-                  const Positioned(
-                    left: 20,
-                    bottom: 20,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-
-                        Text(
-                          'Expense Overview',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 26,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-
-                        SizedBox(height: 6),
-
-                        Text(
-                          'Track your spending smartly',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 14,
-                          ),
-                        ),
-
-                      ],
-                    ),
-                  ),
-
-                ],
-              ),
-            ),
-          ),
-
-
-
-
-          // ── Search Bar ───────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search transactions...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    _searchController.clear();
-                    setState(() => _searchQuery = '');
-                  },
-                )
-                    : null,
-              ),
-              onChanged: (value) {
-                setState(() => _searchQuery = value);
-              },
-            ),
-          ),
-
-          // ── Filter Chips ─────────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                _FilterChip(
-                  label: 'All',
-                  isSelected: _selectedFilter == 'all',
-                  onTap: () => setState(() {
-                    _selectedFilter = 'all';
-                    _searchQuery = '';
-                    _searchController.clear();
-                  }),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Income',
-                  isSelected: _selectedFilter == 'income',
-                  color: AppTheme.incomeGreen,
-                  onTap: () => setState(() {
-                    _selectedFilter = 'income';
-                    _searchQuery = '';
-                    _searchController.clear();
-                  }),
-                ),
-                const SizedBox(width: 8),
-                _FilterChip(
-                  label: 'Expense',
-                  isSelected: _selectedFilter == 'expense',
-                  color: AppTheme.expenseRed,
-                  onTap: () => setState(() {
-                    _selectedFilter = 'expense';
-                    _searchQuery = '';
-                    _searchController.clear();
-                  }),
-                ),
-              ],
-            ),
-          ),
-
-          // ── Transaction count ────────────────────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
-              children: [
-                Text(
-                  '${transactions.length} transaction${transactions.length == 1 ? '' : 's'}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: Colors.grey,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // ── Transaction List ─────────────────────────────────
+          // --- Main List (ListView.builder for efficiency) ---
           Expanded(
-            child: transactionProvider.isLoading
+            child: provider.isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : transactions.isEmpty
-                ? _buildEmptyState()
-                : RefreshIndicator(
-              onRefresh: _loadData,
-              color: AppTheme.primaryGreen,
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
-                itemCount: transactions.length,
-                itemBuilder: (context, index) {
-                  final transaction = transactions[index];
-                  return _TransactionCard(
-                    transaction: transaction,
-                    onEdit: () => context.go(
-                      '/add-expense',
-                      extra: {'transaction': transaction},
-                    ),
-                    onDelete: () => _showDeleteDialog(
-                      context,
-                      transaction,
-                    ),
-                    onTap: () => _showDetailSheet(
-                      context,
-                      transaction,
-                    ),
-                  )
-                      .animate()
-                      .fadeIn(
-                    delay: Duration(
-                      milliseconds: index * 50,
-                    ),
-                  )
-                      .slideX(begin: 0.2, end: 0);
-                },
-              ),
-            ),
+                    ? _buildEmptyState()
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: transactions.length,
+                        itemBuilder: (context, index) {
+                          final item = transactions[index];
+                          return _TransactionListItem(
+                            item: item,
+                            onTap: () => _showDetailSheet(context, item),
+                          ).animate().fadeIn(delay: Duration(milliseconds: index * 20));
+                        },
+                      ),
           ),
         ],
       ),
     );
   }
 
-  // ── Empty State ──────────────────────────────────────────────
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.receipt_long_outlined,
-            size: 80,
-            color: Colors.grey[300],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            _searchQuery.isNotEmpty
-                ? 'No results found'
-                : 'No transactions yet',
-            style: TextStyle(
-              fontSize: 18,
-              color: Colors.grey[500],
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _searchQuery.isNotEmpty
-                ? 'Try a different search term'
-                : 'Tap + to add your first transaction',
-            style: TextStyle(fontSize: 14, color: Colors.grey[400]),
-          ),
-          if (_searchQuery.isEmpty) ...[
-            const SizedBox(height: 24),
-            ElevatedButton.icon(
-              onPressed: () => context.go('/add-expense'),
-              icon: const Icon(Icons.add),
-              label: const Text('Add Transaction'),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(200, 48),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // ── Detail Bottom Sheet (Master/Detail) ──────────────────────
-  void _showDetailSheet(BuildContext context, TransactionModel transaction) {
-    final isExpense = transaction.type == 'expense';
-    final color = isExpense ? AppTheme.expenseRed : AppTheme.incomeGreen;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        minChildSize: 0.4,
-        maxChildSize: 0.9,
-        expand: false,
-        builder: (context, scrollController) => SingleChildScrollView(
-          controller: scrollController,
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-
-                // Handle bar
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-
-                // Type + Amount
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: color.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        isExpense
-                            ? Icons.arrow_upward
-                            : Icons.arrow_downward,
-                        color: color,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          transaction.category,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          isExpense ? 'Expense' : 'Income',
-                          style: TextStyle(color: color),
-                        ),
-                      ],
-                    ),
-                    const Spacer(),
-                    Text(
-                      '${isExpense ? '-' : '+'}Rs. ${transaction.amount.toStringAsFixed(2)}',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: color,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                const Divider(),
-                const SizedBox(height: 16),
-
-                // Details
-                _DetailRow(
-                  icon: Icons.calendar_today,
-                  label: 'Date',
-                  value: _formatDate(transaction.date),
-                ),
-                if (transaction.note != null &&
-                    transaction.note!.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  _DetailRow(
-                    icon: Icons.note,
-                    label: 'Note',
-                    value: transaction.note!,
-                  ),
-                ],
-                if (transaction.latitude != null) ...[
-                  const SizedBox(height: 12),
-                  _DetailRow(
-                    icon: Icons.location_on,
-                    label: 'Location',
-                    value: DeviceServiceHelper.formatLocation(
-                      transaction.latitude,
-                      transaction.longitude,
-                    ),
-                  ),
-                ],
-                if (transaction.imagePath != null) ...[
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Receipt',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      File(transaction.imagePath!),
-                      height: 200,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 24),
-
-                // Action buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          context.go(
-                            '/add-expense',
-                            extra: {'transaction': transaction},
-                          );
-                        },
-                        icon: const Icon(Icons.edit),
-                        label: const Text('Edit'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          _showDeleteDialog(context, transaction);
-                        },
-                        icon: const Icon(Icons.delete),
-                        label: const Text('Delete'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── Format date ──────────────────────────────────────────────
-  String _formatDate(String dateStr) {
-    try {
-      final date = DateTime.parse(dateStr);
-      return DateFormat('dd MMM yyyy').format(date);
-    } catch (e) {
-      return dateStr;
-    }
-  }
-}
-
-// ── Filter Chip Widget ───────────────────────────────────────────
-class _FilterChip extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final Color? color;
-  final VoidCallback onTap;
-
-  const _FilterChip({
-    required this.label,
-    required this.isSelected,
-    this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final chipColor = color ?? AppTheme.primaryGreen;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? chipColor : chipColor.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : chipColor,
-            fontWeight: FontWeight.w600,
-            fontSize: 13,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── Transaction Card Widget ──────────────────────────────────────
-class _TransactionCard extends StatelessWidget {
-  final TransactionModel transaction;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-  final VoidCallback onTap;
-
-  const _TransactionCard({
-    required this.transaction,
-    required this.onEdit,
-    required this.onDelete,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isExpense = transaction.type == 'expense';
-    final color = isExpense ? AppTheme.expenseRed : AppTheme.incomeGreen;
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      child: InkWell(
-        onTap: onTap,
+  // UI Components
+  Widget _buildBanner() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      height: 120,
+      width: double.infinity,
+      decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
+        image: const DecorationImage(image: AssetImage('assets/images/dashboard_banner.jpg'), fit: BoxFit.cover),
+      ),
+    );
+  }
+
+  Widget _buildFilters() {
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          TextField(
+            controller: _searchController,
+            decoration: InputDecoration(hintText: 'Search transactions...', prefixIcon: const Icon(Icons.search)),
+            onChanged: (val) => setState(() => _searchQuery = val),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              // Icon
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  isExpense ? Icons.arrow_upward : Icons.arrow_downward,
-                  color: color,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: 12),
-
-              // Details
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      transaction.category,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 15,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      transaction.note?.isNotEmpty == true
-                          ? transaction.note!
-                          : _formatDate(transaction.date),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[500],
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (transaction.latitude != null)
-                      Row(
-                        children: [
-                          Icon(Icons.location_on,
-                              size: 12, color: Colors.grey[400]),
-                          const SizedBox(width: 2),
-                          Text(
-                            'Location tagged',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey[400],
-                            ),
-                          ),
-                        ],
-                      ),
-                  ],
-                ),
-              ),
-
-              // Amount + Actions
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '${isExpense ? '-' : '+'}Rs. ${transaction.amount.toStringAsFixed(2)}',
-                    style: TextStyle(
-                      color: color,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      GestureDetector(
-                        onTap: onEdit,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          child: const Icon(
-                            Icons.edit_outlined,
-                            size: 18,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      GestureDetector(
-                        onTap: onDelete,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          child: const Icon(
-                            Icons.delete_outline,
-                            size: 18,
-                            color: Colors.red,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+              _FilterButton(label: 'All', isSelected: _selectedFilter == 'all', onTap: () => setState(() => _selectedFilter = 'all')),
+              _FilterButton(label: 'Income', isSelected: _selectedFilter == 'income', onTap: () => setState(() => _selectedFilter = 'income')),
+              _FilterButton(label: 'Expense', isSelected: _selectedFilter == 'expense', onTap: () => setState(() => _selectedFilter = 'expense')),
             ],
           ),
-        ),
+        ],
       ),
     );
   }
 
-  String _formatDate(String dateStr) {
-    try {
-      final date = DateTime.parse(dateStr);
-      return DateFormat('dd MMM yyyy').format(date);
-    } catch (e) {
-      return dateStr;
-    }
+  Widget _buildEmptyState() {
+    return const Center(child: Text('No transactions found. Add one!'));
   }
-}
 
-// ── Detail Row Widget ────────────────────────────────────────────
-class _DetailRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _DetailRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: Colors.grey),
-        const SizedBox(width: 8),
-        Text(
-          '$label: ',
-          style: const TextStyle(
-            color: Colors.grey,
-            fontSize: 14,
-          ),
+  // --- Master/Detail View ---
+  void _showDetailSheet(BuildContext context, TransactionModel item) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(item.category, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text('${item.type == 'income' ? '+' : '-'} Rs. ${item.amount}', style: TextStyle(fontSize: 20, color: item.type == 'income' ? Colors.green : Colors.red)),
+            const Divider(height: 32),
+            Text('Date: ${item.date}'),
+            if (item.note != null) Text('Note: ${item.note}'),
+            const SizedBox(height: 24),
+            // Button to close
+            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))),
+          ],
         ),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(
-              fontWeight: FontWeight.w500,
-              fontSize: 14,
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
 
-// ── Helper for location formatting ───────────────────────────────
-class DeviceServiceHelper {
-  static String formatLocation(double? lat, double? lng) {
-    if (lat == null || lng == null) return 'No location';
-    return '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
-  }
-}
-
-// ── Accelerometer Value Widget ───────────────────────────────
-class _AccelValue extends StatelessWidget {
-  final String label;
-  final double value;
-  final Color color;
-
-  const _AccelValue({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
+// Private Widgets
+class _TransactionListItem extends StatelessWidget {
+  final TransactionModel item;
+  final VoidCallback onTap;
+  const _TransactionListItem({required this.item, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Row(
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Text(
-            '$label: ${value.toStringAsFixed(1)}',
-            style: TextStyle(
-              fontSize: 11,
-              color: color,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        onTap: onTap,
+        leading: Icon(item.type == 'income' ? Icons.arrow_downward : Icons.arrow_upward, color: item.type == 'income' ? Colors.green : Colors.red),
+        title: Text(item.category, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text(item.date),
+        trailing: Text('Rs. ${item.amount}', style: const TextStyle(fontWeight: FontWeight.bold)),
+      ),
+    );
+  }
+}
+
+class _FilterButton extends StatelessWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+  const _FilterButton({required this.label, required this.isSelected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Chip(
+        label: Text(label, style: TextStyle(color: isSelected ? Colors.white : Colors.black)),
+        backgroundColor: isSelected ? AppTheme.primaryGreen : Colors.grey[200],
       ),
     );
   }

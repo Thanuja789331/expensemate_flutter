@@ -70,6 +70,11 @@ class DeviceService {
     }
   }
 
+  String formatLocation(double? lat, double? lng) {
+    if (lat == null || lng == null) return 'No location';
+    return '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
+  }
+
   // --- BATTERY & NETWORK ---
 
   Future<int> getBatteryLevel() async => await _battery.batteryLevel;
@@ -81,7 +86,30 @@ class DeviceService {
     return result != ConnectivityResult.none;
   }
 
-  // --- ACCELEROMETER (SHAKE) ---
+  // Stream for network connectivity changes
+  Stream<ConnectivityResult> get connectivityStream =>
+      _connectivity.onConnectivityChanged.map(
+            (results) => results.isNotEmpty
+            ? results.first
+            : ConnectivityResult.none,
+      );
+
+  // --- SENSORS (ACCELEROMETER & GYROSCOPE) ---
+
+  // Raw streams for the Sensors screen
+  Stream<AccelerometerEvent> get accelerometerStream => accelerometerEventStream();
+  Stream<GyroscopeEvent> get gyroscopeStream => gyroscopeEventStream();
+
+  // Logic to turn gyroscope values into a human-readable tilt description
+  String getGyroscopeTilt(double x, double y, double z) {
+    if (x.abs() > y.abs() && x.abs() > z.abs()) {
+      return x > 0 ? 'Tilting Forward' : 'Tilting Backward';
+    } else if (y.abs() > x.abs() && y.abs() > z.abs()) {
+      return y > 0 ? 'Tilting Right' : 'Tilting Left';
+    } else {
+      return z > 0 ? 'Rotating Clockwise' : 'Rotating Counter-clockwise';
+    }
+  }
 
   // Detects if the user shakes the phone (Threshold: 15.0)
   Stream<bool> get shakeStream {
@@ -107,6 +135,15 @@ class DeviceService {
   // Check if phone has fingerprint or face unlock hardware
   Future<bool> isBiometricAvailable() async {
     return await _localAuth.canCheckBiometrics && await _localAuth.isDeviceSupported();
+  }
+
+  // List what biometrics the phone supports (Face, Fingerprint, etc)
+  Future<List<BiometricType>> getAvailableBiometrics() async {
+    try {
+      return await _localAuth.getAvailableBiometrics();
+    } catch (e) {
+      return [];
+    }
   }
 
   // Trigger the system biometric popup

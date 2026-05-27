@@ -39,6 +39,37 @@ class TransactionProvider extends ChangeNotifier {
   List<TransactionModel> get recentTransactions =>
       _transactions.take(5).toList();
 
+  // --- Budget calculations (VIVA: Financial logic) ---
+  double _monthlyBudget = 50000.0;
+  double get monthlyBudget => _monthlyBudget;
+
+  void setMonthlyBudget(double budget) {
+    _monthlyBudget = budget;
+    notifyListeners();
+  }
+
+  double get budgetUsedPercentage {
+    if (_monthlyBudget <= 0) return 0;
+    return (totalExpense / _monthlyBudget * 100).clamp(0, 100);
+  }
+
+  double get remainingBudget => _monthlyBudget - totalExpense;
+
+  String get budgetStatus {
+    final percentage = budgetUsedPercentage;
+    if (percentage >= 100) return 'exceeded';
+    if (percentage >= 80) return 'warning';
+    return 'safe';
+  }
+
+  double get dailyAverage {
+    if (_transactions.isEmpty) return 0;
+    final now = DateTime.now();
+    final dayOfMonth = now.day;
+    if (dayOfMonth == 0) return 0;
+    return totalExpense / dayOfMonth;
+  }
+
   // Simple math to predict monthly spend based on current daily average
   double get predictedMonthlyExpense {
     if (_transactions.isEmpty) return 0;
@@ -46,6 +77,15 @@ class TransactionProvider extends ChangeNotifier {
     final dayOfMonth = now.day;
     final totalDays = DateTime(now.year, now.month + 1, 0).day;
     return (totalExpense / dayOfMonth) * totalDays;
+  }
+
+  // --- Category breakdown for pie chart ---
+  Map<String, double> get categoryBreakdown {
+    Map<String, double> breakdown = {};
+    for (var t in _transactions.where((t) => t.type == 'expense')) {
+      breakdown[t.category] = (breakdown[t.category] ?? 0) + t.amount;
+    }
+    return breakdown;
   }
 
   // --- Loading Data ---
@@ -150,6 +190,39 @@ class TransactionProvider extends ChangeNotifier {
     }
   }
 
+  // Update existing transaction
+  Future<bool> updateTransaction(TransactionModel transaction) async {
+    try {
+      await _db.updateTransaction(transaction);
+      final index = _transactions.indexWhere((t) => t.id == transaction.id);
+      if (index != -1) {
+        _transactions[index] = transaction;
+        _transactions.sort((a, b) => b.date.compareTo(a.date));
+        notifyListeners();
+      }
+      return true;
+    } catch (e) {
+      _errorMessage = 'Failed to update transaction.';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // Delete transaction
+  Future<bool> deleteTransaction(String id) async {
+    try {
+      await _db.deleteTransaction(id);
+      _transactions.removeWhere((t) => t.id == id);
+      notifyListeners();
+      _sspApi.deleteExpense(id); // Background delete
+      return true;
+    } catch (e) {
+      _errorMessage = 'Failed to delete transaction.';
+      notifyListeners();
+      return false;
+    }
+  }
+
   // Background sync helper
   Future<void> _syncToApi(TransactionModel transaction) async {
     try {
@@ -163,6 +236,21 @@ class TransactionProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('Offline: Transaction saved on device but not yet synced to cloud.');
     }
+  }
+
+  // --- Search & Filter ---
+  List<TransactionModel> filterTransactions(String filter) {
+    if (filter == 'all') return _transactions;
+    return _transactions.where((t) => t.type == filter).toList();
+  }
+
+  List<TransactionModel> searchTransactions(String query) {
+    if (query.isEmpty) return _transactions;
+    final q = query.toLowerCase();
+    return _transactions.where((t) {
+      return t.category.toLowerCase().contains(q) ||
+          (t.note?.toLowerCase().contains(q) ?? false);
+    }).toList();
   }
 
   // Reset data on logout

@@ -13,7 +13,7 @@ import '../../services/device_service.dart';
 
 // --- DASHBOARD SCREEN ---
 // This is the main screen showing the list of transactions.
-// It includes: Search, Filters, and "Shake to Refresh".
+// It includes: Search, Filters, Edit/Delete (CRUD), and "Shake to Refresh".
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
@@ -60,17 +60,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() => _isShaking = true);
         _loadData(); // Reload data when phone is shaken
         
-        // Give tactile feedback via a snackbar
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Refreshing via Shake!'), duration: Duration(seconds: 1), behavior: SnackBarBehavior.floating),
         );
         
-        // Reset shaking state after a second
         Future.delayed(const Duration(seconds: 1), () {
           if (mounted) setState(() => _isShaking = false);
         });
       }
     });
+  }
+
+  // CRUD: Delete Transaction
+  void _confirmDelete(BuildContext context, TransactionModel item) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Transaction'),
+        content: const Text('Are you sure you want to remove this record?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context); // Close dialog
+              final success = await context.read<TransactionProvider>().deleteTransaction(item.id);
+              if (success && mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Transaction Deleted'), backgroundColor: Colors.orange));
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   // Helper to filter the list based on type (Income/Expense) and search text
@@ -117,6 +140,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           return _TransactionListItem(
                             item: item,
                             onTap: () => _showDetailSheet(context, item),
+                            onDelete: () => _confirmDelete(context, item),
+                            onEdit: () => context.push('/add-expense', extra: {'transaction': item}),
                           ).animate().fadeIn(delay: Duration(milliseconds: index * 20));
                         },
                       ),
@@ -129,12 +154,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // UI Components
   Widget _buildBanner() {
     return Container(
-      margin: const EdgeInsets.all(16),
-      height: 120,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      height: 140,
       width: double.infinity,
       decoration: BoxDecoration(
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        image: const DecorationImage(image: AssetImage('assets/images/dashboard_banner.jpg'), fit: BoxFit.cover),
+        border: Border.all(color: Colors.grey.withOpacity(0.1)),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Image.asset(
+          'assets/images/dashboard_banner.jpg',
+          fit: BoxFit.contain,
+          alignment: Alignment.center,
+        ),
       ),
     );
   }
@@ -178,15 +212,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(item.category, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(item.category, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                IconButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    context.push('/add-expense', extra: {'transaction': item});
+                  },
+                  icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                )
+              ],
+            ),
             const SizedBox(height: 8),
             Text('${item.type == 'income' ? '+' : '-'} Rs. ${item.amount}', style: TextStyle(fontSize: 20, color: item.type == 'income' ? Colors.green : Colors.red)),
             const Divider(height: 32),
-            Text('Date: ${item.date}'),
-            if (item.note != null) Text('Note: ${item.note}'),
-            const SizedBox(height: 24),
-            // Button to close
-            SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))),
+            Text('Date: ${item.date}', style: const TextStyle(color: Colors.grey)),
+            if (item.note != null && item.note!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Note: ${item.note}'),
+            ],
+            const SizedBox(height: 32),
+            // Actions
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _confirmDelete(context, item);
+                    },
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Delete'),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -198,18 +268,75 @@ class _DashboardScreenState extends State<DashboardScreen> {
 class _TransactionListItem extends StatelessWidget {
   final TransactionModel item;
   final VoidCallback onTap;
-  const _TransactionListItem({required this.item, required this.onTap});
+  final VoidCallback onDelete;
+  final VoidCallback onEdit;
+
+  const _TransactionListItem({
+    required this.item, 
+    required this.onTap, 
+    required this.onDelete, 
+    required this.onEdit
+  });
 
   @override
   Widget build(BuildContext context) {
+    final isExpense = item.type == 'expense';
+    final color = isExpense ? Colors.red : Colors.green;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: ListTile(
+      child: InkWell(
         onTap: onTap,
-        leading: Icon(item.type == 'income' ? Icons.arrow_downward : Icons.arrow_upward, color: item.type == 'income' ? Colors.green : Colors.red),
-        title: Text(item.category, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(item.date),
-        trailing: Text('Rs. ${item.amount}', style: const TextStyle(fontWeight: FontWeight.bold)),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              // Icon
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+                child: Icon(isExpense ? Icons.arrow_upward : Icons.arrow_downward, color: color, size: 20),
+              ),
+              const SizedBox(width: 16),
+              // Category & Date
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(item.category, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    Text(item.date, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                  ],
+                ),
+              ),
+              // Amount & CRUD Actions
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '${isExpense ? '-' : '+'} Rs. ${item.amount}', 
+                    style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 15)
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GestureDetector(
+                        onTap: onEdit,
+                        child: const Icon(Icons.edit_outlined, size: 18, color: Colors.blue),
+                      ),
+                      const SizedBox(width: 12),
+                      GestureDetector(
+                        onTap: onDelete,
+                        child: const Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                      ),
+                    ],
+                  )
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -226,8 +353,9 @@ class _FilterButton extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Chip(
-        label: Text(label, style: TextStyle(color: isSelected ? Colors.white : Colors.black)),
+        label: Text(label, style: TextStyle(color: isSelected ? Colors.white : Colors.black, fontSize: 12)),
         backgroundColor: isSelected ? AppTheme.primaryGreen : Colors.grey[200],
+        padding: const EdgeInsets.symmetric(horizontal: 8),
       ),
     );
   }

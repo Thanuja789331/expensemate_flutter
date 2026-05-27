@@ -202,7 +202,7 @@ class _SummaryScreenState extends State<SummaryScreen> with SingleTickerProvider
             ),
             const SizedBox(height: 16),
             Text('Rs. ${balanceLKR.toStringAsFixed(2)}', style: const TextStyle(fontSize: 18, color: Colors.grey)),
-            Text('${_selectedCurrency == 'USD' ? '$' : _selectedCurrency} ${(balanceLKR * rate).toStringAsFixed(2)}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.primaryGreen)),
+            Text("${_selectedCurrency == 'USD' ? '\$' : _selectedCurrency} ${(balanceLKR * rate).toStringAsFixed(2)}", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.primaryGreen)),
             Text('1 LKR = $rate $_selectedCurrency', style: const TextStyle(fontSize: 11, color: Colors.grey)),
           ],
         ),
@@ -213,7 +213,9 @@ class _SummaryScreenState extends State<SummaryScreen> with SingleTickerProvider
   Widget _buildWeeklyTab(TransactionProvider provider, bool isLandscape) {
     final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final weeklyData = <String, Map<String, double>>{};
-    for (var d in days) weeklyData[d] = {'income': 0.0, 'expense': 0.0};
+    for (var d in days) {
+      weeklyData[d] = {'income': 0.0, 'expense': 0.0};
+    }
     
     for (var t in provider.transactions) {
       try {

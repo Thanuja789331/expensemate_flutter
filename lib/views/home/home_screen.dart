@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../../models/transaction_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/transaction_provider.dart';
 import '../../services/api_service.dart';
@@ -665,7 +666,7 @@ class _TipCard extends StatelessWidget {
 
 // ── Transaction Tile Widget ──────────────────────────────────────
 class _TransactionTile extends StatelessWidget {
-  final transaction;
+  final TransactionModel transaction;
 
   const _TransactionTile({required this.transaction});
 

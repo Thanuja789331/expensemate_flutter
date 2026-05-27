@@ -258,15 +258,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildAccountDetail() {
     final auth = context.watch<AuthProvider>();
     return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _DetailRow(label: 'Full Name', value: auth.userName),
+        const Divider(height: 16),
         _DetailRow(label: 'Email Address', value: auth.userEmail),
+        const Divider(height: 16),
         _DetailRow(label: 'User ID', value: auth.userId),
-        const SizedBox(height: 24),
-        ElevatedButton(
-          onPressed: () => _showSignOutDialog(context),
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-          child: const Text('Sign Out Account'),
+        const SizedBox(height: 32),
+        Center(
+          child: ElevatedButton(
+            onPressed: () => _showSignOutDialog(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              minimumSize: const Size(double.infinity, 50),
+            ),
+            child: const Text('Sign Out Account', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
         ),
       ],
     );
@@ -331,13 +340,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
           onChanged: (v) async {
             if (v) {
               final success = await _deviceService.authenticateWithBiometric();
-              if (success) await themeProvider.setFingerprintEnabled(true);
+              if (success) {
+                await themeProvider.setFingerprintEnabled(true);
+                _showSnackBar('Fingerprint Lock Enabled', Colors.green);
+              } else {
+                _showSnackBar('Authentication Failed', Colors.red);
+              }
             } else {
               await themeProvider.setFingerprintEnabled(false);
+              _showSnackBar('Fingerprint Lock Disabled', Colors.orange);
             }
           },
         ),
       ],
+    );
+  }
+
+  void _showSnackBar(String msg, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
     );
   }
 
@@ -405,10 +433,17 @@ class _DetailRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: const TextStyle(color: Colors.grey)),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
         ],
       ),
     );

@@ -5,8 +5,7 @@ import '../services/database_service.dart';
 import '../services/ssp_api_service.dart';
 
 // --- TRANSACTION PROVIDER ---
-// This class manages all our spending data. 
-// It uses an "Offline-First" approach: Save to device first, then sync to cloud.
+// Offline-First approach: Save to SQLite first, then sync to cloud.
 class TransactionProvider extends ChangeNotifier {
   final DatabaseService _db = DatabaseService();
   final Uuid _uuid = const Uuid();
@@ -20,26 +19,21 @@ class TransactionProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
-  // --- Calculations for Charts ---
-  
-  // Sum up all income items
+  // ── Computed values ──────────────────────────────────────────
   double get totalIncome => _transactions
       .where((t) => t.type == 'income')
       .fold(0.0, (sum, t) => sum + t.amount);
 
-  // Sum up all expense items
   double get totalExpense => _transactions
       .where((t) => t.type == 'expense')
       .fold(0.0, (sum, t) => sum + t.amount);
 
-  // Remaining balance
   double get balance => totalIncome - totalExpense;
 
-  // Get the last 5 transactions for the Dashboard preview
   List<TransactionModel> get recentTransactions =>
       _transactions.take(5).toList();
 
-  // --- Budget calculations (VIVA: Financial logic) ---
+  // ── Budget calculations ──────────────────────────────────────
   double _monthlyBudget = 50000.0;
   double get monthlyBudget => _monthlyBudget;
 
@@ -70,16 +64,16 @@ class TransactionProvider extends ChangeNotifier {
     return totalExpense / dayOfMonth;
   }
 
-  // Simple math to predict monthly spend based on current daily average
   double get predictedMonthlyExpense {
     if (_transactions.isEmpty) return 0;
     final now = DateTime.now();
     final dayOfMonth = now.day;
     final totalDays = DateTime(now.year, now.month + 1, 0).day;
+    if (dayOfMonth == 0) return 0;
     return (totalExpense / dayOfMonth) * totalDays;
   }
 
-  // --- Category breakdown for pie chart ---
+  // ── Category breakdown for pie chart ─────────────────────────
   Map<String, double> get categoryBreakdown {
     Map<String, double> breakdown = {};
     for (var t in _transactions.where((t) => t.type == 'expense')) {
@@ -88,18 +82,13 @@ class TransactionProvider extends ChangeNotifier {
     return breakdown;
   }
 
-  // --- Loading Data ---
-
-  // Load transactions from SQLite so the app works offline
+  // ── Load from SQLite ─────────────────────────────────────────
   Future<void> loadTransactions(String userId) async {
     try {
       _isLoading = true;
       _errorMessage = null;
       notifyListeners();
-
-      // Fetch from local database
       _transactions = await _db.getTransactions(userId);
-
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -109,39 +98,66 @@ class TransactionProvider extends ChangeNotifier {
     }
   }
 
-  // Pull data from our Laravel SSP API and save it to the local device
+  // ── Load from SSP API ────────────────────────────────────────
   Future<void> loadFromApi(String userId) async {
     try {
       final apiExpenses = await _sspApi.getExpenses();
       for (final expense in apiExpenses) {
-        
-        // Map API fields (like 'title' or 'amount') to our TransactionModel
         String categoryName = 'Other';
         final cat = expense['category'];
-        if (cat is Map) categoryName = cat['name']?.toString() ?? 'Other';
-        else if (cat is String) categoryName = cat;
+        if (cat is Map) {
+          categoryName = cat['name']?.toString() ?? 'Other';
+        } else if (cat is String) {
+          categoryName = cat;
+        }
+
+        double amount = 0.0;
+        final rawAmount = expense['amount'];
+        if (rawAmount is num) {
+          amount = rawAmount.toDouble();
+        } else if (rawAmount is String) {
+          amount = double.tryParse(rawAmount) ?? 0.0;
+        }
+
+        String type = 'expense';
+        final rawType = expense['type'];
+        if (rawType is String) {
+          type = rawType.toLowerCase() == 'income' ? 'income' : 'expense';
+        }
+
+        String date = '';
+        final rawDate = expense['expense_date'] ??
+            expense['date'] ??
+            expense['created_at'];
+        if (rawDate is String) {
+          date = rawDate.length > 10
+              ? rawDate.substring(0, 10)
+              : rawDate;
+        }
+
+        String? note = expense['note']?.toString() ??
+            expense['title']?.toString();
 
         final transaction = TransactionModel(
           id: 'ssp_${expense['id']?.toString() ?? _uuid.v4()}',
           userId: userId,
-          type: expense['type']?.toString().toLowerCase() == 'income' ? 'income' : 'expense',
+          type: type,
           category: categoryName,
-          amount: double.tryParse(expense['amount'].toString()) ?? 0.0,
-          date: expense['date']?.toString().substring(0, 10) ?? '',
-          note: expense['note']?.toString() ?? expense['title']?.toString(),
+          amount: amount,
+          date: date,
+          note: note,
+          currency: 'LKR',
         );
 
-        // Save this API item into our local SQLite
         await _db.insertTransaction(transaction);
       }
-      // Refresh the UI list after sync
       await loadTransactions(userId);
     } catch (e) {
-      debugPrint('Sync from cloud failed, but that is fine, we have local data.');
+      debugPrint('Cloud sync failed — using local data: $e');
     }
   }
 
-  // --- Create Transaction ---
+  // ── Add transaction ──────────────────────────────────────────
   Future<bool> addTransaction({
     required String userId,
     required String type,
@@ -156,7 +172,7 @@ class TransactionProvider extends ChangeNotifier {
   }) async {
     try {
       _errorMessage = null;
-      
+
       final transaction = TransactionModel(
         id: _uuid.v4(),
         userId: userId,
@@ -171,15 +187,15 @@ class TransactionProvider extends ChangeNotifier {
         currency: currency,
       );
 
-      // 1. Save to SQLite immediately (Offline Support)
+      // 1 — Save to SQLite immediately (offline-first)
       await _db.insertTransaction(transaction);
-      
-      // 2. Update the UI list instantly so the user sees it (Optimistic UI)
+
+      // 2 — Update UI instantly
       _transactions.insert(0, transaction);
       _transactions.sort((a, b) => b.date.compareTo(a.date));
       notifyListeners();
 
-      // 3. Try to sync to the Laravel AWS API in the background
+      // 3 — Sync to API in background
       _syncToApi(transaction);
 
       return true;
@@ -190,11 +206,12 @@ class TransactionProvider extends ChangeNotifier {
     }
   }
 
-  // Update existing transaction
+  // ── Update transaction ───────────────────────────────────────
   Future<bool> updateTransaction(TransactionModel transaction) async {
     try {
       await _db.updateTransaction(transaction);
-      final index = _transactions.indexWhere((t) => t.id == transaction.id);
+      final index =
+      _transactions.indexWhere((t) => t.id == transaction.id);
       if (index != -1) {
         _transactions[index] = transaction;
         _transactions.sort((a, b) => b.date.compareTo(a.date));
@@ -208,13 +225,13 @@ class TransactionProvider extends ChangeNotifier {
     }
   }
 
-  // Delete transaction
+  // ── Delete transaction ───────────────────────────────────────
   Future<bool> deleteTransaction(String id) async {
     try {
       await _db.deleteTransaction(id);
       _transactions.removeWhere((t) => t.id == id);
       notifyListeners();
-      _sspApi.deleteExpense(id); // Background delete
+      _sspApi.deleteExpense(id);
       return true;
     } catch (e) {
       _errorMessage = 'Failed to delete transaction.';
@@ -223,22 +240,54 @@ class TransactionProvider extends ChangeNotifier {
     }
   }
 
-  // Background sync helper
+  // ── Sync to SSP API ──────────────────────────────────────────
+  // KEY FIX: Use category_id and expense_date as Laravel expects
   Future<void> _syncToApi(TransactionModel transaction) async {
     try {
-      await _sspApi.createExpense({
-        'title': transaction.note?.isNotEmpty == true ? transaction.note : transaction.category,
+      final payload = {
+        'title': transaction.note?.isNotEmpty == true
+            ? transaction.note
+            : transaction.category,
         'amount': transaction.amount,
         'type': transaction.type,
-        'category': transaction.category,
-        'date': transaction.date,
-      });
+        'category_id': _getCategoryId(transaction.category),
+        'expense_date': transaction.date,
+        'note': transaction.note ?? '',
+      };
+
+      print('📤 Syncing to API: $payload');
+      final result = await _sspApi.createExpense(payload);
+      print('📥 Sync result: $result');
+
+      if (result['success'] == true) {
+        print('✅ Expense synced to SSP API successfully!');
+      } else {
+        print('❌ Sync failed: ${result['message']}');
+      }
     } catch (e) {
-      debugPrint('Offline: Transaction saved on device but not yet synced to cloud.');
+      print('❌ Sync error: $e');
+      debugPrint('Offline: Transaction saved locally, sync failed.');
     }
   }
 
-  // --- Search & Filter ---
+  // ── Map category name → Laravel category_id ─────────────────
+  int _getCategoryId(String categoryName) {
+    const categoryMap = {
+      'Food & Drinks': 1,
+      'Transport': 2,
+      'Shopping': 3,
+      'Bills': 4,
+      'Health': 5,
+      'Entertainment': 6,
+      'Education': 7,
+      'Salary': 8,
+      'Freelance': 9,
+      'Other': 10,
+    };
+    return categoryMap[categoryName] ?? 10;
+  }
+
+  // ── Search & Filter ──────────────────────────────────────────
   List<TransactionModel> filterTransactions(String filter) {
     if (filter == 'all') return _transactions;
     return _transactions.where((t) => t.type == filter).toList();
@@ -253,7 +302,7 @@ class TransactionProvider extends ChangeNotifier {
     }).toList();
   }
 
-  // Reset data on logout
+  // ── Clear data on logout ─────────────────────────────────────
   void clearData() {
     _transactions = [];
     notifyListeners();

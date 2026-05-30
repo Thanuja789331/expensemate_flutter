@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../models/transaction_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/transaction_provider.dart';
@@ -25,18 +26,31 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _tips = [];
   int _currentTipIndex = 0;
   StreamSubscription? _shakeSubscription;
+  StreamSubscription? _connectivitySubscription;
 
   @override
   void initState() {
     super.initState();
     _loadData();
     _initDeviceFeatures();
+    _checkInitialConnectivity();
   }
 
   @override
   void dispose() {
     _shakeSubscription?.cancel();
+    _connectivitySubscription?.cancel();
     super.dispose();
+  }
+
+  // Check connectivity immediately when screen loads
+  Future<void> _checkInitialConnectivity() async {
+    final List<ConnectivityResult> results = await Connectivity().checkConnectivity();
+    if (mounted) {
+      setState(() {
+        _isOnline = !results.contains(ConnectivityResult.none);
+      });
+    }
   }
 
   // ── Load all data ────────────────────────────────────────────
@@ -65,18 +79,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Init device features ─────────────────────────────────────
   Future<void> _initDeviceFeatures() async {
-    final online = await _deviceService.isOnline();
-
-    if (mounted) {
-      setState(() {
-        _isOnline = online;
-      });
-    }
-
-    // Listen for connectivity changes
-    _deviceService.connectivityStream.listen((result) {
+    // Listen for connectivity changes in real time
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> results) {
       if (mounted) {
-        setState(() => _isOnline = result.name != 'none');
+        setState(() {
+          // If the list contains anything other than 'none', we consider it online
+          _isOnline = !results.contains(ConnectivityResult.none);
+        });
       }
     });
 

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import 'providers/auth_provider.dart';
 import 'providers/transaction_provider.dart';
 import 'providers/theme_provider.dart';
@@ -14,42 +15,49 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
   runApp(
-    // Wrap entire app in Biometric protection for high-security marks
-    const BiometricLockScreen(
-      child: ExpenseMateApp(),
-    ),
-  );
-}
-
-class ExpenseMateApp extends StatelessWidget {
-  const ExpenseMateApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    // Inject all Providers into the widget tree
-    return MultiProvider(
+    // Step 1: Move Providers to the very top. 
+    // This ensures AuthState is NEVER destroyed when the screen locks.
+    MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => TransactionProvider()),
       ],
-      child: Builder(
-        builder: (context) {
-          final themeProvider = context.watch<ThemeProvider>();
-          
-          // Initialize GoRouter for clean navigation management
-          final router = AppRouter.createRouter(context);
-          
-          return MaterialApp.router(
-            title: 'ExpenseMate',
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.lightTheme,
-            darkTheme: AppTheme.darkTheme,
-            themeMode: themeProvider.themeMode, // Controlled by ThemeProvider
-            routerConfig: router,
-          );
-        },
+      child: const BiometricLockScreen(
+        child: ExpenseMateApp(),
       ),
+    ),
+  );
+}
+
+class ExpenseMateApp extends StatefulWidget {
+  const ExpenseMateApp({super.key});
+
+  @override
+  State<ExpenseMateApp> createState() => _ExpenseMateAppState();
+}
+
+class _ExpenseMateAppState extends State<ExpenseMateApp> {
+  late final GoRouter _router;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize the router once to avoid navigation resets on rebuild
+    _router = AppRouter.createRouter(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
+    
+    return MaterialApp.router(
+      title: 'ExpenseMate',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: themeProvider.themeMode,
+      routerConfig: _router,
     );
   }
 }
@@ -86,10 +94,19 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
   // Lock the app again when it is minimized (Privacy Protection)
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
-      setState(() => _isLocked = true);
-    } else if (state == AppLifecycleState.resumed && _isLocked) {
+    print('📱 Lifecycle State: $state');
+    if (state == AppLifecycleState.resumed && _isLocked) {
+      print('▶️ App Resumed - currently locked, checking auth...');
       _checkAndAuthenticate();
+    } else if (state == AppLifecycleState.inactive) {
+      // Inactive is usually when the app is being swiped away or minimized
+      // But it also triggers when system dialogs (Camera/Gallery) open.
+      // We check if it's already locked to avoid double-locking.
+      print('⚪ App Inactive');
+      if (!_isLocked) {
+        // Set locked to true so it must be scanned on return
+        setState(() => _isLocked = true);
+      }
     }
   }
 
@@ -120,55 +137,68 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
 
   @override
   Widget build(BuildContext context) {
-    // If unlocked, show the actual app content
-    if (!_isLocked) return widget.child;
+    // Step 2: Use a Stack so the app child is ALWAYS in the tree.
+    // If it's removed and re-added (like before), GoRouter resets to /login.
+    // By keeping it in the tree, we preserve the current route and form data.
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: Stack(
+        children: [
+          // The actual app is always running in the background
+          widget.child,
 
-    // Otherwise, show the high-security "Lock Screen" UI
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      home: Scaffold(
-        body: Container(
-          decoration: const BoxDecoration(
-            image: DecorationImage(
-              image: AssetImage('assets/images/login_bg.png'),
-              fit: BoxFit.cover,
-              colorFilter: ColorFilter.mode(Colors.black54, BlendMode.darken),
-            ),
-          ),
-          child: SafeArea(
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.lock_outline, size: 80, color: Colors.white),
-                  const SizedBox(height: 24),
-                  const Text('ExpenseMate Secured', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white)),
-                  const SizedBox(height: 60),
-                  
-                  // Fingerprint Button
-                  GestureDetector(
-                    onTap: _isAuthenticating ? null : _authenticate,
-                    child: Container(
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
+          // If locked, we show a full-screen overlay
+          if (_isLocked)
+            Positioned.fill(
+              child: MaterialApp(
+                debugShowCheckedModeBanner: false,
+                theme: AppTheme.lightTheme,
+                darkTheme: AppTheme.darkTheme,
+                home: Scaffold(
+                  body: Container(
+                    decoration: const BoxDecoration(
+                      image: DecorationImage(
+                        image: AssetImage('assets/images/login_bg.png'),
+                        fit: BoxFit.cover,
+                        colorFilter: ColorFilter.mode(Colors.black54, BlendMode.darken),
                       ),
-                      child: _isAuthenticating
-                          ? const CircularProgressIndicator(color: Colors.white)
-                          : const Icon(Icons.fingerprint, size: 64, color: Colors.white),
+                    ),
+                    child: SafeArea(
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.lock_outline, size: 80, color: Colors.white),
+                            const SizedBox(height: 24),
+                            const Text('ExpenseMate Secured', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white)),
+                            const SizedBox(height: 60),
+                            
+                            // Fingerprint Button
+                            GestureDetector(
+                              onTap: _isAuthenticating ? null : _authenticate,
+                              child: Container(
+                                padding: const EdgeInsets.all(24),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.2),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white, width: 2),
+                                ),
+                                child: _isAuthenticating
+                                    ? const CircularProgressIndicator(color: Colors.white)
+                                    : const Icon(Icons.fingerprint, size: 64, color: Colors.white),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            Text(_isAuthenticating ? 'Scanning...' : 'Tap to scan fingerprint', style: const TextStyle(color: Colors.white70)),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  Text(_isAuthenticating ? 'Scanning...' : 'Tap to scan fingerprint', style: const TextStyle(color: Colors.white70)),
-                ],
+                ),
               ),
             ),
-          ),
-        ),
+        ],
       ),
     );
   }

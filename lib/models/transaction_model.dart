@@ -1,7 +1,10 @@
+// --- TRANSACTION MODEL ---
+// Data structure for a single expense or income entry.
+// Maps between the app, SQLite database, and the Laravel API.
 class TransactionModel {
   final String id;
   final String userId;
-  final String type; // 'expense' or 'income'
+  final String type;
   final String category;
   final double amount;
   final String date;
@@ -10,6 +13,7 @@ class TransactionModel {
   final double? latitude;
   final double? longitude;
   final String currency;
+  final bool isSynced;
 
   TransactionModel({
     required this.id,
@@ -23,9 +27,9 @@ class TransactionModel {
     this.latitude,
     this.longitude,
     this.currency = 'LKR',
+    this.isSynced = true,
   });
 
-  // Convert to Map for SQLite
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -39,63 +43,52 @@ class TransactionModel {
       'latitude': latitude,
       'longitude': longitude,
       'currency': currency,
+      'isSynced': isSynced ? 1 : 0,
     };
   }
 
-  // Create from SQLite Map
   factory TransactionModel.fromMap(Map<String, dynamic> map) {
     return TransactionModel(
-      id: map['id'],
-      userId: map['userId'],
-      type: map['type'],
-      category: map['category'],
-      amount: map['amount'],
-      date: map['date'],
-      note: map['note'],
-      imagePath: map['imagePath'],
-      latitude: map['latitude'],
-      longitude: map['longitude'],
-      currency: map['currency'] ?? 'LKR',
+      id: map['id']?.toString() ?? '',
+      userId: map['userId']?.toString() ?? '',
+      type: map['type']?.toString() ?? 'expense',
+      category: map['category']?.toString() ?? 'Other',
+      amount: (map['amount'] as num?)?.toDouble() ?? 0.0,
+      date: map['date']?.toString() ?? '',
+      note: map['note']?.toString(),
+      imagePath: map['imagePath']?.toString(),
+      latitude: map['latitude'] != null
+          ? (map['latitude'] as num).toDouble()
+          : null,
+      longitude: map['longitude'] != null
+          ? (map['longitude'] as num).toDouble()
+          : null,
+      currency: map['currency']?.toString() ?? 'LKR',
+      isSynced: (map['isSynced'] as int? ?? 1) == 1,
     );
   }
 
-  // Create from JSON (for API data)
   factory TransactionModel.fromJson(Map<String, dynamic> json) {
     return TransactionModel(
-      id: json['id'].toString(),
-      userId: json['userId'].toString(),
-      type: json['type'] ?? 'expense',
-      category: json['category'] ?? 'Other',
-      amount: double.tryParse(json['amount'].toString()) ?? 0.0,
-      date: json['date'] ?? '',
-      note: json['note'],
-      imagePath: json['imagePath'],
+      id: json['id']?.toString() ?? '',
+      userId: json['userId']?.toString() ?? '',
+      type: json['type']?.toString() ?? 'expense',
+      category: json['category']?.toString() ?? 'Other',
+      amount: double.tryParse(json['amount']?.toString() ?? '0') ?? 0.0,
+      date: json['date']?.toString() ?? '',
+      note: json['note']?.toString(),
+      imagePath: json['imagePath']?.toString(),
       latitude: json['latitude'] != null
           ? double.tryParse(json['latitude'].toString())
           : null,
       longitude: json['longitude'] != null
           ? double.tryParse(json['longitude'].toString())
           : null,
+      currency: json['currency']?.toString() ?? 'LKR',
+      isSynced: true,
     );
   }
 
-  // Convert to JSON (for API)
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'userId': userId,
-      'type': type,
-      'category': category,
-      'amount': amount,
-      'date': date,
-      'note': note,
-      'imagePath': imagePath,
-      'latitude': latitude,
-      'longitude': longitude,
-    };
-  }
-
-  // CopyWith — useful for editing
   TransactionModel copyWith({
     String? id,
     String? userId,
@@ -108,6 +101,7 @@ class TransactionModel {
     double? latitude,
     double? longitude,
     String? currency,
+    bool? isSynced,
   }) {
     return TransactionModel(
       id: id ?? this.id,
@@ -121,6 +115,7 @@ class TransactionModel {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       currency: currency ?? this.currency,
+      isSynced: isSynced ?? this.isSynced,
     );
   }
 }

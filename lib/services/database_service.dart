@@ -3,69 +3,77 @@ import 'package:path/path.dart';
 import '../models/transaction_model.dart';
 
 // --- DATABASE SERVICE (SQLite) ---
-// This handles all local storage on the phone so the app works offline.
+// Handles all local storage so the app works fully offline.
 class DatabaseService {
-  // Singleton: Only one instance of the database exists in the app
   static final DatabaseService _instance = DatabaseService._internal();
   factory DatabaseService() => _instance;
   DatabaseService._internal();
 
   static Database? _database;
 
-  // Getter to initialize the database if it doesn't exist
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
-  // Set up the database file path
   Future<Database> _initDatabase() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'expensemate.db');
 
     return await openDatabase(
       path,
-      version: 2, // Upgraded from 1 to 2 to add the 'currency' column
+      version: 3,
       onCreate: _createTables,
-      onUpgrade: _onUpgrade, // Migration logic for existing users
+      onUpgrade: _onUpgrade,
     );
   }
 
-  // Runs only if an older version of the database is found on the device
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+  // Handles upgrades without losing user data
+  Future<void> _onUpgrade(
+      Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      // Viva: This adds a new column without deleting existing user data
       try {
-        await db.execute('ALTER TABLE transactions ADD COLUMN currency TEXT DEFAULT "LKR"');
+        await db.execute(
+          'ALTER TABLE transactions ADD COLUMN currency TEXT DEFAULT "LKR"',
+        );
       } catch (e) {
-        // Safe to ignore if column exists
+        // Column may already exist
+      }
+    }
+    if (oldVersion < 3) {
+      // 0 = pending sync, 1 = synced to API
+      try {
+        await db.execute(
+          'ALTER TABLE transactions ADD COLUMN isSynced INTEGER DEFAULT 1',
+        );
+      } catch (e) {
+        // Column may already exist
       }
     }
   }
 
-  // Runs the first time the app is installed
+  // Runs on fresh install
   Future<void> _createTables(Database db, int version) async {
     await db.execute('''
-    CREATE TABLE transactions (
-      id TEXT PRIMARY KEY,
-      userId TEXT NOT NULL,
-      type TEXT NOT NULL,
-      category TEXT NOT NULL,
-      amount REAL NOT NULL,
-      date TEXT NOT NULL,
-      note TEXT,
-      imagePath TEXT,
-      latitude REAL,
-      longitude REAL,
-      currency TEXT DEFAULT 'LKR'
-    )
-  ''');
+      CREATE TABLE transactions (
+        id        TEXT PRIMARY KEY,
+        userId    TEXT NOT NULL,
+        type      TEXT NOT NULL,
+        category  TEXT NOT NULL,
+        amount    REAL NOT NULL,
+        date      TEXT NOT NULL,
+        note      TEXT,
+        imagePath TEXT,
+        latitude  REAL,
+        longitude REAL,
+        currency  TEXT DEFAULT 'LKR',
+        isSynced  INTEGER DEFAULT 1
+      )
+    ''');
   }
 
-  // --- CRUD METHODS ---
-
-  // Save transaction locally (uses "Replace" to handle duplicates during sync)
+  // Save transaction — REPLACE handles duplicates during sync
   Future<void> insertTransaction(TransactionModel transaction) async {
     final db = await database;
     await db.insert(
@@ -75,16 +83,51 @@ class DatabaseService {
     );
   }
 
-  // Get all items for a user, newest items at the top
+  // Get all transactions for a user newest first
   Future<List<TransactionModel>> getTransactions(String userId) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
+    final maps = await db.query(
       'transactions',
       where: 'userId = ?',
       whereArgs: [userId],
       orderBy: 'date DESC',
     );
     return maps.map((map) => TransactionModel.fromMap(map)).toList();
+  }
+
+  // Get only unsynced transactions for background sync
+  Future<List<TransactionModel>> getUnsyncedTransactions(
+      String userId) async {
+    final db = await database;
+    final maps = await db.query(
+      'transactions',
+      where: 'userId = ? AND isSynced = 0',
+      whereArgs: [userId],
+    );
+    return maps.map((map) => TransactionModel.fromMap(map)).toList();
+  }
+
+  // Mark a transaction as synced after successful API upload
+  Future<void> markAsSynced(String id) async {
+    final db = await database;
+    await db.update(
+      'transactions',
+      {'isSynced': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // FIX: Replace local UUID with server-assigned ID after sync
+  // Called after a local transaction is successfully created on server
+  // e.g. local UUID 'abc-123' becomes 'ssp_41'
+  Future<void> updateTransactionId(String oldId, String newId) async {
+    final db = await database;
+    await db.rawUpdate(
+      'UPDATE transactions SET id = ?, isSynced = 1 WHERE id = ?',
+      [newId, oldId],
+    );
+    print('✅ DB ID updated: $oldId → $newId');
   }
 
   // Edit an existing record
@@ -98,7 +141,7 @@ class DatabaseService {
     );
   }
 
-  // Remove a record by its unique ID
+  // Remove a record
   Future<void> deleteTransaction(String id) async {
     final db = await database;
     await db.delete(

@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import '../models/transaction_model.dart';
@@ -5,7 +7,7 @@ import '../services/database_service.dart';
 import '../services/ssp_api_service.dart';
 
 // --- TRANSACTION PROVIDER ---
-// Offline-First approach: Save to SQLite first, then sync to cloud.
+// Offline-first: Save to SQLite first, then sync to Laravel API.
 class TransactionProvider extends ChangeNotifier {
   final DatabaseService _db = DatabaseService();
   final Uuid _uuid = const Uuid();
@@ -14,10 +16,37 @@ class TransactionProvider extends ChangeNotifier {
   List<TransactionModel> _transactions = [];
   bool _isLoading = false;
   String? _errorMessage;
+  bool _isSyncing = false;
+
+  StreamSubscription? _connectivitySubscription;
 
   List<TransactionModel> get transactions => _transactions;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
+
+  TransactionProvider() {
+    _initConnectivityListener();
+  }
+
+  // Auto-sync when internet returns
+  void _initConnectivityListener() {
+    _connectivitySubscription = Connectivity()
+        .onConnectivityChanged
+        .listen((results) async {
+      final isOnline = results.isNotEmpty &&
+          results.first != ConnectivityResult.none;
+      if (isOnline && !_isSyncing) {
+        print('📶 Internet returned — syncing pending...');
+        await _syncPendingTransactions();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    super.dispose();
+  }
 
   // ── Computed values ──────────────────────────────────────────
   double get totalIncome => _transactions
@@ -33,7 +62,7 @@ class TransactionProvider extends ChangeNotifier {
   List<TransactionModel> get recentTransactions =>
       _transactions.take(5).toList();
 
-  // ── Budget calculations ──────────────────────────────────────
+  // ── Budget ───────────────────────────────────────────────────
   double _monthlyBudget = 50000.0;
   double get monthlyBudget => _monthlyBudget;
 
@@ -50,32 +79,28 @@ class TransactionProvider extends ChangeNotifier {
   double get remainingBudget => _monthlyBudget - totalExpense;
 
   String get budgetStatus {
-    final percentage = budgetUsedPercentage;
-    if (percentage >= 100) return 'exceeded';
-    if (percentage >= 80) return 'warning';
+    final pct = budgetUsedPercentage;
+    if (pct >= 100) return 'exceeded';
+    if (pct >= 80) return 'warning';
     return 'safe';
   }
 
   double get dailyAverage {
     if (_transactions.isEmpty) return 0;
-    final now = DateTime.now();
-    final dayOfMonth = now.day;
-    if (dayOfMonth == 0) return 0;
-    return totalExpense / dayOfMonth;
+    final day = DateTime.now().day;
+    return day == 0 ? 0 : totalExpense / day;
   }
 
   double get predictedMonthlyExpense {
     if (_transactions.isEmpty) return 0;
     final now = DateTime.now();
-    final dayOfMonth = now.day;
+    final day = now.day;
     final totalDays = DateTime(now.year, now.month + 1, 0).day;
-    if (dayOfMonth == 0) return 0;
-    return (totalExpense / dayOfMonth) * totalDays;
+    return day == 0 ? 0 : (totalExpense / day) * totalDays;
   }
 
-  // ── Category breakdown for pie chart ─────────────────────────
   Map<String, double> get categoryBreakdown {
-    Map<String, double> breakdown = {};
+    final Map<String, double> breakdown = {};
     for (var t in _transactions.where((t) => t.type == 'expense')) {
       breakdown[t.category] = (breakdown[t.category] ?? 0) + t.amount;
     }
@@ -93,7 +118,7 @@ class TransactionProvider extends ChangeNotifier {
       notifyListeners();
     } catch (e) {
       _isLoading = false;
-      _errorMessage = 'Failed to load local data.';
+      _errorMessage = 'Failed to load: $e';
       notifyListeners();
     }
   }
@@ -103,14 +128,16 @@ class TransactionProvider extends ChangeNotifier {
     try {
       final apiExpenses = await _sspApi.getExpenses();
       for (final expense in apiExpenses) {
+        // Extract category name safely
         String categoryName = 'Other';
         final cat = expense['category'];
         if (cat is Map) {
           categoryName = cat['name']?.toString() ?? 'Other';
-        } else if (cat is String) {
+        } else if (cat is String && cat.isNotEmpty) {
           categoryName = cat;
         }
 
+        // Parse amount safely
         double amount = 0.0;
         final rawAmount = expense['amount'];
         if (rawAmount is num) {
@@ -119,41 +146,41 @@ class TransactionProvider extends ChangeNotifier {
           amount = double.tryParse(rawAmount) ?? 0.0;
         }
 
-        String type = 'expense';
-        final rawType = expense['type'];
-        if (rawType is String) {
-          type = rawType.toLowerCase() == 'income' ? 'income' : 'expense';
-        }
+        // Parse type
+        final rawType =
+            expense['type']?.toString().toLowerCase() ?? '';
+        final type = rawType == 'income' ? 'income' : 'expense';
 
+        // Parse date — use expense_date first
         String date = '';
         final rawDate = expense['expense_date'] ??
             expense['date'] ??
             expense['created_at'];
-        if (rawDate is String) {
+        if (rawDate is String && rawDate.isNotEmpty) {
           date = rawDate.length > 10
               ? rawDate.substring(0, 10)
               : rawDate;
         }
 
-        String? note = expense['note']?.toString() ??
-            expense['title']?.toString();
-
         final transaction = TransactionModel(
+          // FIX: Store as ssp_{server_id} so we know it's a server record
           id: 'ssp_${expense['id']?.toString() ?? _uuid.v4()}',
           userId: userId,
           type: type,
           category: categoryName,
           amount: amount,
           date: date,
-          note: note,
+          note: expense['note']?.toString() ??
+              expense['title']?.toString(),
           currency: 'LKR',
+          isSynced: true,
         );
 
         await _db.insertTransaction(transaction);
       }
       await loadTransactions(userId);
     } catch (e) {
-      debugPrint('Cloud sync failed — using local data: $e');
+      debugPrint('API load failed: $e');
     }
   }
 
@@ -173,34 +200,42 @@ class TransactionProvider extends ChangeNotifier {
     try {
       _errorMessage = null;
 
+      final connectivity = await Connectivity().checkConnectivity();
+      final isOnline = connectivity != ConnectivityResult.none;
+
       final transaction = TransactionModel(
-        id: _uuid.v4(),
+        id: _uuid.v4(), // Local UUID until server assigns ID
         userId: userId,
         type: type,
         category: category,
         amount: amount,
         date: date,
-        note: note,
+        note: note?.trim().isEmpty == true ? null : note?.trim(),
         imagePath: imagePath,
         latitude: latitude,
         longitude: longitude,
         currency: currency,
+        isSynced: false, // Not synced yet
       );
 
-      // 1 — Save to SQLite immediately (offline-first)
+      // Step 1: Save to SQLite immediately
       await _db.insertTransaction(transaction);
 
-      // 2 — Update UI instantly
+      // Step 2: Update UI instantly
       _transactions.insert(0, transaction);
       _transactions.sort((a, b) => b.date.compareTo(a.date));
       notifyListeners();
 
-      // 3 — Sync to API in background
-      _syncToApi(transaction);
+      // Step 3: Sync to API if online
+      if (isOnline) {
+        await _createOnApi(transaction);
+      } else {
+        print('📴 Offline — will sync when online');
+      }
 
       return true;
     } catch (e) {
-      _errorMessage = 'Failed to save transaction: $e';
+      _errorMessage = 'Failed to save: $e';
       notifyListeners();
       return false;
     }
@@ -209,7 +244,12 @@ class TransactionProvider extends ChangeNotifier {
   // ── Update transaction ───────────────────────────────────────
   Future<bool> updateTransaction(TransactionModel transaction) async {
     try {
+      _errorMessage = null;
+
+      // Step 1: Update SQLite
       await _db.updateTransaction(transaction);
+
+      // Step 2: Update UI
       final index =
       _transactions.indexWhere((t) => t.id == transaction.id);
       if (index != -1) {
@@ -217,9 +257,24 @@ class TransactionProvider extends ChangeNotifier {
         _transactions.sort((a, b) => b.date.compareTo(a.date));
         notifyListeners();
       }
+
+      // Step 3: Sync to API
+      final connectivity = await Connectivity().checkConnectivity();
+      if (connectivity != ConnectivityResult.none) {
+        if (transaction.id.startsWith('ssp_')) {
+          // FIX: Has server ID → use PUT to UPDATE existing record
+          print('UPDATE ID: ${transaction.id}');
+          await _updateOnApi(transaction);
+        } else {
+          // FIX: No server ID → use POST to CREATE on server
+          print('CREATE ON SERVER (local): ${transaction.id}');
+          await _createOnApi(transaction);
+        }
+      }
+
       return true;
     } catch (e) {
-      _errorMessage = 'Failed to update transaction.';
+      _errorMessage = 'Failed to update: $e';
       notifyListeners();
       return false;
     }
@@ -228,49 +283,176 @@ class TransactionProvider extends ChangeNotifier {
   // ── Delete transaction ───────────────────────────────────────
   Future<bool> deleteTransaction(String id) async {
     try {
+      _errorMessage = null;
+      print('DELETE ID: $id');
+
+      final connectivity = await Connectivity().checkConnectivity();
+      final isOnline = connectivity != ConnectivityResult.none;
+
+      // FIX: Always try API delete if online AND has server ID
+      if (isOnline && id.startsWith('ssp_')) {
+        // Strip ssp_ prefix to get real server numeric ID
+        final serverId = id.replaceFirst('ssp_', '');
+        print('DELETE SERVER ID: $serverId');
+
+        final success = await _sspApi.deleteExpense(serverId);
+        print(
+          'DELETE STATUS: ${success ? '✅ success' : '❌ failed'}',
+        );
+      } else if (!id.startsWith('ssp_')) {
+        print('DELETE LOCAL ONLY — no server record');
+      } else {
+        print('DELETE OFFLINE — SQLite only');
+      }
+
+      // Always delete from SQLite
       await _db.deleteTransaction(id);
       _transactions.removeWhere((t) => t.id == id);
       notifyListeners();
-      _sspApi.deleteExpense(id);
+
       return true;
     } catch (e) {
-      _errorMessage = 'Failed to delete transaction.';
+      _errorMessage = 'Failed to delete: $e';
+      print('❌ DELETE ERROR: $e');
       notifyListeners();
       return false;
     }
   }
 
-  // ── Sync to SSP API ──────────────────────────────────────────
-  // KEY FIX: Use category_id and expense_date as Laravel expects
-  Future<void> _syncToApi(TransactionModel transaction) async {
+  // ── Create on API (POST /api/expenses) ───────────────────────
+  Future<void> _createOnApi(TransactionModel t) async {
     try {
-      final payload = {
-        'title': transaction.note?.isNotEmpty == true
-            ? transaction.note
-            : transaction.category,
-        'amount': transaction.amount,
-        'type': transaction.type,
-        'category_id': _getCategoryId(transaction.category),
-        'expense_date': transaction.date,
-        'note': transaction.note ?? '',
-      };
+      final payload = _buildPayload(t);
+      print('📤 CREATE PAYLOAD: $payload');
 
-      print('📤 Syncing to API: $payload');
       final result = await _sspApi.createExpense(payload);
-      print('📥 Sync result: $result');
+      print('📥 CREATE RESULT: $result');
 
       if (result['success'] == true) {
-        print('✅ Expense synced to SSP API successfully!');
+        // FIX: Extract server ID and update local record
+        // This ensures future edits/deletes use the correct server ID
+        final responseData =
+            result['data']?['data'] ?? result['data'];
+
+        if (responseData != null && responseData['id'] != null) {
+          final newId = 'ssp_${responseData['id']}';
+          print('✅ Server ID assigned: $newId');
+
+          // Update ID in SQLite
+          await _db.updateTransactionId(t.id, newId);
+
+          // Update in memory
+          final index =
+          _transactions.indexWhere((item) => item.id == t.id);
+          if (index != -1) {
+            _transactions[index] =
+                t.copyWith(id: newId, isSynced: true);
+            notifyListeners();
+          }
+        } else {
+          await _db.markAsSynced(t.id);
+          _updateMemorySync(t.id, true);
+        }
+        print('✅ Created on server: ${t.category}');
       } else {
-        print('❌ Sync failed: ${result['message']}');
+        print('❌ Create failed: ${result['message']}');
       }
     } catch (e) {
-      print('❌ Sync error: $e');
-      debugPrint('Offline: Transaction saved locally, sync failed.');
+      print('❌ Create error: $e');
     }
   }
 
-  // ── Map category name → Laravel category_id ─────────────────
+  // ── Update on API (PUT /api/expenses/{id}) ───────────────────
+  Future<void> _updateOnApi(TransactionModel t) async {
+    try {
+      final payload = _buildPayload(t);
+      print('📤 UPDATE ID: ${t.id}');
+      print('📤 UPDATE PAYLOAD: $payload');
+
+      // FIX: Pass full ID — updateExpense() strips ssp_ prefix
+      final result = await _sspApi.updateExpense(t.id, payload);
+      print('📥 UPDATE RESULT: $result');
+
+      if (result['success'] == true) {
+        await _db.markAsSynced(t.id);
+        _updateMemorySync(t.id, true);
+        print('✅ Updated on server: ${t.category}');
+      } else if (result['message'] == 'not_found') {
+        // FIX: Record not found on server — create it instead
+        print('⚠️ Not found on server — creating...');
+        await _createOnApi(t);
+      } else {
+        print('❌ Update failed: ${result['message']}');
+      }
+    } catch (e) {
+      print('❌ Update error: $e');
+    }
+  }
+
+  // ── Build payload for Laravel API ───────────────────────────
+  // FIX: Must match exactly what Laravel store()/update() expects
+  Map<String, dynamic> _buildPayload(TransactionModel t) {
+    return {
+      'title': (t.note != null && t.note!.isNotEmpty)
+          ? t.note
+          : t.category,
+      'amount': t.amount,
+      'type': t.type,
+      // FIX: Laravel expects category_id (integer) not category name
+      'category_id': _getCategoryId(t.category),
+      // FIX: Laravel expects expense_date not date
+      'expense_date': t.date,
+      'note': t.note ?? '',
+    };
+  }
+
+  // ── Update sync status in memory ─────────────────────────────
+  void _updateMemorySync(String id, bool status) {
+    final index = _transactions.indexWhere((t) => t.id == id);
+    if (index != -1) {
+      _transactions[index] =
+          _transactions[index].copyWith(isSynced: status);
+      notifyListeners();
+    }
+  }
+
+  // ── Auto sync all pending when internet returns ──────────────
+  Future<void> _syncPendingTransactions() async {
+    if (_isSyncing || _transactions.isEmpty) return;
+    _isSyncing = true;
+
+    try {
+      final userId = _transactions.first.userId;
+      final pending = await _db.getUnsyncedTransactions(userId);
+
+      if (pending.isEmpty) {
+        print('✅ No pending transactions');
+        _isSyncing = false;
+        return;
+      }
+
+      print('🔄 Syncing ${pending.length} pending...');
+
+      for (final t in pending) {
+        if (t.id.startsWith('ssp_')) {
+          // Has server ID — update
+          await _updateOnApi(t);
+        } else {
+          // No server ID — create
+          await _createOnApi(t);
+        }
+        await Future.delayed(const Duration(milliseconds: 300));
+      }
+
+      print('✅ All pending synced!');
+    } catch (e) {
+      print('❌ Pending sync error: $e');
+    } finally {
+      _isSyncing = false;
+    }
+  }
+
+  // ── Category name → Laravel category_id ─────────────────────
   int _getCategoryId(String categoryName) {
     const categoryMap = {
       'Food & Drinks': 1,
@@ -287,7 +469,7 @@ class TransactionProvider extends ChangeNotifier {
     return categoryMap[categoryName] ?? 10;
   }
 
-  // ── Search & Filter ──────────────────────────────────────────
+  // ── Filter and Search ────────────────────────────────────────
   List<TransactionModel> filterTransactions(String filter) {
     if (filter == 'all') return _transactions;
     return _transactions.where((t) => t.type == filter).toList();
@@ -302,7 +484,7 @@ class TransactionProvider extends ChangeNotifier {
     }).toList();
   }
 
-  // ── Clear data on logout ─────────────────────────────────────
+  // ── Clear on logout ──────────────────────────────────────────
   void clearData() {
     _transactions = [];
     notifyListeners();

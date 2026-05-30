@@ -120,11 +120,26 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   }
 
   Future<void> _pickImage(bool isCamera) async {
-    final path = isCamera
-        ? await _deviceService.pickImageFromCamera()
-        : await _deviceService.pickImageFromGallery();
-    if (path != null && mounted) {
-      setState(() => _imagePath = path);
+    print('📸 ATTACH RECEIPT TAPPED');
+    print('CURRENT ROUTE: ${GoRouterState.of(context).uri}');
+    print('IMAGE PICKER OPENING');
+    
+    try {
+      final path = isCamera
+          ? await _deviceService.pickImageFromCamera()
+          : await _deviceService.pickImageFromGallery();
+      
+      if (!mounted) {
+        print('⚠️ Context unmounted after image pick');
+        return;
+      }
+      
+      if (path != null) {
+        print('✅ Image selected: $path');
+        setState(() => _imagePath = path);
+      }
+    } catch (e) {
+      print('❌ Image Picker Error: $e');
     }
   }
 
@@ -196,15 +211,26 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   Future<void> _saveTransaction() async {
     if (!_formKey.currentState!.validate()) return;
 
+    print('💾 Saving transaction...');
+    // Capture state before async work
+    final authProvider = context.read<AuthProvider>();
+    final transactionProvider = context.read<TransactionProvider>();
+    
+    // Safety check for user ID
+    if (authProvider.userId.isEmpty) {
+      print('❌ Error: User ID is missing - cannot save transaction');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error: User not authenticated')),
+      );
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
-      final authProvider = context.read<AuthProvider>();
-      final transactionProvider = context.read<TransactionProvider>();
-      
       final amount = double.parse(_amountController.text);
       final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
-      
+
       bool success;
 
       if (_isEditMode) {
@@ -213,7 +239,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
           category: _selectedCategory,
           amount: amount,
           date: dateStr,
-          note: _noteController.text.trim(),
+          note: _noteController.text.trim().isEmpty
+              ? null
+              : _noteController.text.trim(),
           imagePath: _imagePath,
           latitude: _latitude,
           longitude: _longitude,
@@ -227,7 +255,9 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
           category: _selectedCategory,
           amount: amount,
           date: dateStr,
-          note: _noteController.text.trim(),
+          note: _noteController.text.trim().isEmpty
+              ? null
+              : _noteController.text.trim(),
           imagePath: _imagePath,
           latitude: _latitude,
           longitude: _longitude,
@@ -235,39 +265,55 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         );
       }
 
-      if (success && mounted) {
+      if (!mounted) {
+        print('⚠️ Context unmounted after save - cannot navigate');
+        return;
+      }
+
+      setState(() => _isLoading = false);
+
+      if (success) {
+        print('✅ Transaction success - navigating to Dashboard');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.check_circle, color: Colors.white, size: 18),
+                const Icon(Icons.check_circle,
+                    color: Colors.white, size: 18),
                 const SizedBox(width: 8),
-                Text(_isEditMode ? 'Transaction updated' : 'Transaction saved'),
+                Text(_isEditMode
+                    ? 'Transaction updated!'
+                    : 'Transaction saved!'),
               ],
             ),
             backgroundColor: AppTheme.primaryGreen,
             behavior: SnackBarBehavior.floating,
           ),
         );
+        
+        // Use go() to replace current stack
         context.go('/dashboard');
-      } else if (mounted) {
-        // Show error if failed
+      } else {
+        print('❌ Transaction failed: ${transactionProvider.errorMessage}');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(transactionProvider.errorMessage ?? 'Failed to save transaction'),
+            content: Text(
+              transactionProvider.errorMessage ??
+                  'Failed to save transaction',
+            ),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
           ),
         );
       }
     } catch (e) {
+      print('❌ Unexpected Save Error: $e');
       if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
         );
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 

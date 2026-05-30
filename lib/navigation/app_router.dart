@@ -21,15 +21,32 @@ class AppRouter {
       initialLocation: '/login',
       refreshListenable: authProvider,
       redirect: (context, state) {
-        final isAuthenticated =
-            authProvider.status == AuthStatus.authenticated;
-        final isAuthRoute =
-            state.matchedLocation == '/login' ||
-                state.matchedLocation == '/register';
+        final status = authProvider.status;
+        final location = state.matchedLocation;
+        
+        print('🚦 Router Redirect Check - Status: $status, Target: $location');
 
-        if (authProvider.status == AuthStatus.unknown) return null;
-        if (!isAuthenticated && !isAuthRoute) return '/login';
-        if (isAuthenticated && isAuthRoute) return '/home';
+        // Logic check: Only redirect IF the status is explicitly unauthenticated
+        final isUnauthenticated = status == AuthStatus.unauthenticated;
+        final isAuthenticated = status == AuthStatus.authenticated;
+        final isAuthRoute = location == '/login' || location == '/register';
+
+        // 1. If app is starting or checking, do nothing
+        if (status == AuthStatus.unknown) {
+          return null;
+        }
+
+        // 2. Only force login if the user is verified as unauthenticated
+        if (isUnauthenticated && !isAuthRoute) {
+          print('🔒 Explicitly Unauthenticated - Redirecting to Login');
+          return '/login';
+        }
+        
+        // 3. Only force home if they are verified as authenticated and trying to access login
+        if (isAuthenticated && isAuthRoute) {
+          print('🏠 Authenticated - Redirecting to Home');
+          return '/home';
+        }
 
         return null;
       },

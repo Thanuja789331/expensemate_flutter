@@ -10,22 +10,18 @@ class SspApiService {
   static const String _baseUrl =
       'http://expensemate-prod.eba-3ztxbse2.ap-southeast-1.elasticbeanstalk.com/api';
 
-  // ── Save token ───────────────────────────────────────────────
+  // ── Token management ─────────────────────────────────────────
   Future<void> saveToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('ssp_token', token);
-    print('✅ Token saved: $token');
+    print('✅ Token saved');
   }
 
-  // ── Get token ────────────────────────────────────────────────
   Future<String?> getToken() async {
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('ssp_token');
-    print('🔑 Token retrieved: $token');
-    return token;
+    return prefs.getString('ssp_token');
   }
 
-  // ── Clear token ──────────────────────────────────────────────
   Future<void> clearToken() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('ssp_token');
@@ -34,20 +30,29 @@ class SspApiService {
   // ── Auth headers ─────────────────────────────────────────────
   Future<Map<String, String>> _authHeaders() async {
     final token = await getToken();
-    final headers = {
+    return {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
     };
-    print('📤 Headers: $headers');
-    return headers;
+  }
+
+  // FIX: Strip ssp_ prefix to get real server numeric ID
+  // e.g. 'ssp_41' becomes '41'
+  String _cleanId(String id) {
+    return id.startsWith('ssp_') ? id.replaceFirst('ssp_', '') : id;
+  }
+
+  // Check if response is HTML (means token invalid/expired)
+  bool _isHtml(String body) {
+    final t = body.trim().toLowerCase();
+    return t.startsWith('<!doctype') || t.startsWith('<html');
   }
 
   // ── Login ────────────────────────────────────────────────────
   Future<Map<String, dynamic>> login(
       String email, String password) async {
     try {
-      print('🔐 Logging in: $email');
       final response = await http
           .post(
         Uri.parse('$_baseUrl/auth/login'),
@@ -63,38 +68,23 @@ class SspApiService {
       )
           .timeout(const Duration(seconds: 15));
 
-      print('📥 Login response status: ${response.statusCode}');
-      print('📥 Login response body: ${response.body}');
-
-      // Check if response is HTML (redirect to login)
-      if (response.body.trim().startsWith('<!DOCTYPE') ||
-          response.body.trim().startsWith('<html')) {
-        return {
-          'success': false,
-          'message': 'Server error - received HTML instead of JSON'
-        };
+      if (_isHtml(response.body)) {
+        return {'success': false, 'message': 'Server error'};
       }
 
       final data = json.decode(response.body);
-
       if (response.statusCode == 200) {
         if (data['token'] != null) {
           await saveToken(data['token'].toString());
-          print('✅ Login successful, token: ${data['token']}');
         }
         return {'success': true, 'data': data};
-      } else {
-        return {
-          'success': false,
-          'message': data['message'] ?? 'Login failed',
-        };
       }
-    } catch (e) {
-      print('❌ Login error: $e');
       return {
         'success': false,
-        'message': 'Connection failed: $e',
+        'message': data['message'] ?? 'Login failed',
       };
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: $e'};
     }
   }
 
@@ -119,34 +109,26 @@ class SspApiService {
       )
           .timeout(const Duration(seconds: 15));
 
-      print('📥 Register status: ${response.statusCode}');
-      print('📥 Register body: ${response.body}');
-
-      if (response.body.trim().startsWith('<!DOCTYPE') ||
-          response.body.trim().startsWith('<html')) {
-        return {
-          'success': false,
-          'message': 'Server error - received HTML'
-        };
+      if (_isHtml(response.body)) {
+        return {'success': false, 'message': 'Server error'};
       }
 
       final data = json.decode(response.body);
-
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (data['token'] != null) {
           await saveToken(data['token'].toString());
         }
         return {'success': true, 'data': data};
-      } else {
-        String message = 'Registration failed';
-        if (data['errors'] != null) {
-          final errors = data['errors'] as Map<String, dynamic>;
-          message = errors.values.first[0].toString();
-        } else if (data['message'] != null) {
-          message = data['message'];
-        }
-        return {'success': false, 'message': message};
       }
+
+      String message = 'Registration failed';
+      if (data['errors'] != null) {
+        final errors = data['errors'] as Map<String, dynamic>;
+        message = errors.values.first[0].toString();
+      } else if (data['message'] != null) {
+        message = data['message'];
+      }
+      return {'success': false, 'message': message};
     } catch (e) {
       return {'success': false, 'message': 'Connection failed: $e'};
     }
@@ -163,7 +145,7 @@ class SspApiService {
       )
           .timeout(const Duration(seconds: 10));
     } catch (e) {
-      print('❌ Logout error: $e');
+      print('⚠️ Logout request failed: $e');
     } finally {
       await clearToken();
     }
@@ -180,31 +162,25 @@ class SspApiService {
       )
           .timeout(const Duration(seconds: 10));
 
-      print('📥 GetMe status: ${response.statusCode}');
-
-      if (response.body.trim().startsWith('<!DOCTYPE') ||
-          response.body.trim().startsWith('<html')) {
-        print('❌ GetMe received HTML - token invalid!');
-        return null;
-      }
-
+      if (_isHtml(response.body)) return {'error': 'unauthorized'};
       if (response.statusCode == 200) {
         return json.decode(response.body);
       }
-      return null;
+      if (response.statusCode == 401) {
+        return {'error': 'unauthorized'};
+      }
+      return {'error': 'network_error'};
     } catch (e) {
-      print('❌ GetMe error: $e');
-      return null;
+      return {'error': 'network_error'};
     }
   }
 
-  // ── Create expense ───────────────────────────────────────────
+  // ── Create expense POST /api/expenses ────────────────────────
   Future<Map<String, dynamic>> createExpense(
       Map<String, dynamic> expense) async {
     try {
       final headers = await _authHeaders();
-
-      print('📤 Creating expense: ${json.encode(expense)}');
+      print('📤 CREATE: ${json.encode(expense)}');
 
       final response = await http
           .post(
@@ -214,37 +190,28 @@ class SspApiService {
       )
           .timeout(const Duration(seconds: 15));
 
-      print('📥 Create expense status: ${response.statusCode}');
-      print('📥 Create expense body: ${response.body}');
+      print('📥 CREATE STATUS: ${response.statusCode}');
+      print('📥 CREATE BODY: ${response.body}');
 
-      // Check if HTML returned (means token invalid)
-      if (response.body.trim().startsWith('<!DOCTYPE') ||
-          response.body.trim().startsWith('<html')) {
-        print('❌ Received HTML - token is invalid or expired!');
-        return {
-          'success': false,
-          'message': 'Token invalid - please login again'
-        };
+      if (_isHtml(response.body)) {
+        return {'success': false, 'message': 'Token invalid'};
       }
 
       final data = json.decode(response.body);
-
       if (response.statusCode == 200 || response.statusCode == 201) {
-        print('✅ Expense created successfully!');
         return {'success': true, 'data': data};
       }
-
       return {
         'success': false,
-        'message': data['message'] ?? 'Failed to create expense',
+        'message': data['message'] ?? 'Create failed',
       };
     } catch (e) {
-      print('❌ Create expense error: $e');
-      return {'success': false, 'message': 'Connection failed: $e'};
+      print('❌ CREATE ERROR: $e');
+      return {'success': false, 'message': 'Connection failed'};
     }
   }
 
-  // ── Get all expenses ─────────────────────────────────────────
+  // ── Get all expenses GET /api/expenses ───────────────────────
   Future<List<Map<String, dynamic>>> getExpenses() async {
     try {
       final headers = await _authHeaders();
@@ -255,107 +222,119 @@ class SspApiService {
       )
           .timeout(const Duration(seconds: 15));
 
-      print('📥 Get expenses status: ${response.statusCode}');
-
-      if (response.body.trim().startsWith('<!DOCTYPE') ||
-          response.body.trim().startsWith('<html')) {
-        print('❌ Received HTML - token invalid!');
-        return [];
-      }
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        if (data is List) {
-          return data.cast<Map<String, dynamic>>();
-        } else if (data['data'] != null) {
-          return (data['data'] as List).cast<Map<String, dynamic>>();
+        if (data is List) return data.cast<Map<String, dynamic>>();
+        if (data['data'] != null) {
+          return (data['data'] as List)
+              .cast<Map<String, dynamic>>();
         }
       }
       return [];
     } catch (e) {
-      print('❌ Get expenses error: $e');
       return [];
     }
   }
 
-  // ── Update expense ───────────────────────────────────────────
+  // ── Update expense PUT /api/expenses/{id} ────────────────────
+  // FIX: id can be 'ssp_41' or '41' — we clean it either way
   Future<Map<String, dynamic>> updateExpense(
       String id, Map<String, dynamic> expense) async {
     try {
+      // FIX: Always strip ssp_ prefix before building URL
+      final cleanId = _cleanId(id);
+      final url = '$_baseUrl/expenses/$cleanId';
       final headers = await _authHeaders();
+
+      print('📤 UPDATE ID: $id → cleanId: $cleanId');
+      print('📤 UPDATE URL: $url');
+      print('📤 UPDATE PAYLOAD: ${json.encode(expense)}');
+
       final response = await http
           .put(
-        Uri.parse('$_baseUrl/expenses/$id'),
+        Uri.parse(url),
         headers: headers,
         body: json.encode(expense),
       )
           .timeout(const Duration(seconds: 15));
 
-      print('📥 Update expense status: ${response.statusCode}');
-      print('📥 Update expense body: ${response.body}');
+      print('📥 UPDATE STATUS: ${response.statusCode}');
+      print('📥 UPDATE BODY: ${response.body}');
 
-      if (response.body.trim().startsWith('<!DOCTYPE') ||
-          response.body.trim().startsWith('<html')) {
+      if (_isHtml(response.body)) {
         return {'success': false, 'message': 'Token invalid'};
       }
 
-      final data = json.decode(response.body);
       if (response.statusCode == 200) {
-        return {'success': true, 'data': data};
+        print('✅ UPDATE SUCCESS');
+        return {
+          'success': true,
+          'data': json.decode(response.body),
+        };
       }
-      return {'success': false, 'message': data['message'] ?? 'Failed'};
+
+      // FIX: 404 means record not found on server
+      if (response.statusCode == 404) {
+        print('⚠️ 404 — record not found on server');
+        return {'success': false, 'message': 'not_found'};
+      }
+
+      return {
+        'success': false,
+        'message': 'Update failed: ${response.statusCode}',
+      };
     } catch (e) {
-      return {'success': false, 'message': 'Connection failed: $e'};
+      print('❌ UPDATE ERROR: $e');
+      return {'success': false, 'message': 'Connection failed'};
     }
   }
 
-  // ── Delete expense ───────────────────────────────────────────
+  // ── Delete expense DELETE /api/expenses/{id} ─────────────────
+  // FIX: id parameter should be CLEAN numeric ID (no ssp_ prefix)
   Future<bool> deleteExpense(String id) async {
     try {
+      // FIX: Clean the ID — caller may pass '41' or 'ssp_41'
+      final cleanId = _cleanId(id);
+      final url = '$_baseUrl/expenses/$cleanId';
       final headers = await _authHeaders();
+
+      print('DELETE ID: $id → cleanId: $cleanId');
+      print('DELETE URL: $url');
+
       final response = await http
           .delete(
-        Uri.parse('$_baseUrl/expenses/$id'),
+        Uri.parse(url),
         headers: headers,
       )
           .timeout(const Duration(seconds: 15));
 
-      print('📥 Delete expense status: ${response.statusCode}');
-      return response.statusCode == 200 || response.statusCode == 204;
+      print('DELETE STATUS: ${response.statusCode}');
+      print('DELETE BODY: ${response.body}');
+
+      if (response.statusCode == 200 || response.statusCode == 204) {
+        print('✅ DELETE SUCCESS');
+        return true;
+      }
+
+      print('❌ DELETE FAILED: ${response.statusCode}');
+      return false;
     } catch (e) {
-      print('❌ Delete expense error: $e');
+      print('❌ DELETE ERROR: $e');
       return false;
     }
   }
 
-  // ── Get summary ──────────────────────────────────────────────
-  Future<Map<String, dynamic>?> getSummary() async {
-    try {
-      final headers = await _authHeaders();
-      final response = await http
-          .get(
-        Uri.parse('$_baseUrl/summary'),
-        headers: headers,
-      )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        return json.decode(response.body);
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
+  // ── Check token exists ───────────────────────────────────────
+  Future<bool> hasStoredToken() async {
+    final token = await getToken();
+    return token != null && token.isNotEmpty;
   }
 
   // ── Check if logged in ───────────────────────────────────────
   Future<bool> isLoggedIn() async {
     final token = await getToken();
-    if (token == null) {
-      print('❌ No token found');
-      return false;
-    }
+    if (token == null) return false;
     final user = await getMe();
-    return user != null;
+    return user != null && user['error'] == null;
   }
 }

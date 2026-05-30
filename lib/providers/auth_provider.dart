@@ -33,23 +33,49 @@ class AuthProvider extends ChangeNotifier {
   // Checks SharedPreferences for a token and validates it with the API
   Future<void> _checkExistingSession() async {
     try {
-      final loggedIn = await _sspApi.isLoggedIn();
-      if (loggedIn) {
-        // Fetch fresh user profile if token is valid
-        final userData = await _sspApi.getMe();
-        if (userData != null) {
-          _setUserFromData(userData);
-          _status = AuthStatus.authenticated;
+      print('🔄 Checking existing session...');
+      final hasToken = await _sspApi.hasStoredToken();
+      
+      if (!hasToken) {
+        print('❌ No stored token found');
+        _status = AuthStatus.unauthenticated;
+        notifyListeners();
+        return;
+      }
+
+      // If we have a token, we try to fetch user profile to verify it
+      final userData = await _sspApi.getMe();
+      
+      if (userData != null) {
+        if (userData.containsKey('error')) {
+          if (userData['error'] == 'unauthorized') {
+            print('❌ Token is unauthorized (401)');
+            _status = AuthStatus.unauthenticated;
+          } else if (userData['error'] == 'network_error') {
+            print('⚠️ Network error during session check - keeping local auth state');
+            // FIX: Don't logout on network error. Assume authenticated if token exists.
+            _status = AuthStatus.authenticated;
+          }
         } else {
-          _status = AuthStatus.unauthenticated;
+          print('✅ Token valid, user: ${userData['user']?['name']}');
+          _setUserFromData(userData);
+          // Only notify if status was not already authenticated to avoid unnecessary redirects
+          if (_status != AuthStatus.authenticated) {
+            _status = AuthStatus.authenticated;
+            notifyListeners();
+            return;
+          }
+          _status = AuthStatus.authenticated;
         }
       } else {
+        // Fallback for null response
         _status = AuthStatus.unauthenticated;
       }
     } catch (e) {
-      _status = AuthStatus.unauthenticated;
+      print('⚠️ Catch-all session check error: $e');
+      _status = AuthStatus.authenticated;
     }
-    notifyListeners(); // Refresh the Router to show Home or Login screen
+    notifyListeners();
   }
 
   // Helper to parse user details from API response

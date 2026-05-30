@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../services/api_service.dart';
 import '../../theme/app_theme.dart';
@@ -15,6 +18,7 @@ class _TipsScreenState extends State<TipsScreen> with SingleTickerProviderStateM
   late TabController _tabController;
 
   List<Map<String, dynamic>> _externalTips = [];
+
   bool _isLoadingExternal = true;
 
   List<Map<String, dynamic>> _localTips = [];
@@ -58,18 +62,80 @@ class _TipsScreenState extends State<TipsScreen> with SingleTickerProviderStateM
     }
   }
 
+  // FIX: Load from Internal Local JSON file
   Future<void> _loadLocalJson() async {
     setState(() => _isLoadingLocal = true);
     try {
-      final tips = await _apiService.getLocalTips();
+      // FIX: Use rootBundle directly to ensure asset loads correctly
+      final String jsonString = await rootBundle.loadString(
+        'assets/json/app_data.json',
+      );
+      final Map<String, dynamic> data = json.decode(jsonString);
+
+      // FIX: Extract tips array from JSON
+      final List<dynamic> tipsData = data['tips'] as List<dynamic>? ?? [];
+
+      final tips = tipsData.map((tip) {
+        return {
+          'id': tip['id']?.toString() ?? '',
+          'title': tip['title']?.toString() ?? '',
+          'description': tip['description']?.toString() ?? '',
+          'source': 'local',
+        };
+      }).toList();
+
       if (mounted) {
         setState(() {
           _localTips = tips;
           _isLoadingLocal = false;
         });
       }
+      print('✅ Local JSON loaded: ${tips.length} tips');
     } catch (e) {
-      if (mounted) setState(() => _isLoadingLocal = false);
+      print('❌ Local JSON error: $e');
+      if (mounted) {
+        setState(() {
+          // FIX: Provide hardcoded fallback if JSON file fails
+          _localTips = [
+            {
+              'id': '1',
+              'title': '50/30/20 Rule',
+              'description':
+              'Spend 50% on needs, 30% on wants and save 20% every month.',
+              'source': 'local',
+            },
+            {
+              'id': '2',
+              'title': 'Track Daily Spending',
+              'description':
+              'Record every expense no matter how small to spot bad habits.',
+              'source': 'local',
+            },
+            {
+              'id': '3',
+              'title': 'Build an Emergency Fund',
+              'description':
+              'Save at least 3 months of expenses as an emergency fund.',
+              'source': 'local',
+            },
+            {
+              'id': '4',
+              'title': 'Avoid Impulse Buying',
+              'description':
+              'Wait 24 hours before any unplanned purchase above Rs. 1000.',
+              'source': 'local',
+            },
+            {
+              'id': '5',
+              'title': 'Review Monthly',
+              'description':
+              'Review your spending every month and adjust your budget.',
+              'source': 'local',
+            },
+          ];
+          _isLoadingLocal = false;
+        });
+      }
     }
   }
 

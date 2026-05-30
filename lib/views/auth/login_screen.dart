@@ -257,33 +257,34 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
 
-                            const SizedBox(height: 18),
-
                             // ── Register Link ──────────────
-                            Center(
-                              child: GestureDetector(
-                                onTap: () {
-                                  context.go('/register');
-                                },
-                                child: RichText(
-                                  text: TextSpan(
-                                    text: "Don't have an account? ",
+                            const SizedBox(height: 24),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  "Don't have an account? ",
+                                  style: TextStyle(color: Colors.grey[600]),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    print('👉 Navigating to Register');
+                                    context.push('/register');
+                                  },
+                                  style: TextButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                    minimumSize: const Size(50, 30),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: Text(
+                                    'Register',
                                     style: TextStyle(
-                                      color: Colors.grey[700],
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.bold,
                                     ),
-                                    children: [
-                                      TextSpan(
-                                        text: 'Register',
-                                        style: TextStyle(
-                                          color:
-                                          theme.colorScheme.primary,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
                                   ),
                                 ),
-                              ),
+                              ],
                             ),
                           ],
                         ),

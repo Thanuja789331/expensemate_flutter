@@ -28,7 +28,6 @@ class TransactionProvider extends ChangeNotifier {
     _initConnectivityListener();
   }
 
-  // Auto-sync when internet returns
   void _initConnectivityListener() {
     _connectivitySubscription = Connectivity()
         .onConnectivityChanged
@@ -124,64 +123,225 @@ class TransactionProvider extends ChangeNotifier {
   }
 
   // ── Load from SSP API ────────────────────────────────────────
+  // Syncs API data to SQLite and removes server-deleted items
   Future<void> loadFromApi(String userId) async {
     try {
+      print('🔄 Loading from API...');
       final apiExpenses = await _sspApi.getExpenses();
+      print('📥 API returned ${apiExpenses.length} expenses');
+
+      // Get all server IDs from API response
+      final serverIds = apiExpenses
+          .map((e) => 'ssp_${e['id']?.toString() ?? ''}')
+          .where((id) => id != 'ssp_')
+          .toSet();
+
+      print('📋 Server IDs: $serverIds');
+
+      // Get existing ssp_ transactions from SQLite
+      final existingTransactions =
+      await _db.getTransactions(userId);
+      final existingSspIds = existingTransactions
+          .where((t) => t.id.startsWith('ssp_'))
+          .map((t) => t.id)
+          .toSet();
+
+      print('📋 Existing SQLite SSP IDs: $existingSspIds');
+
+      // FIX: Find IDs deleted on server — remove from SQLite
+      final deletedIds = existingSspIds.difference(serverIds);
+      print('🗑️ Deleted on server: $deletedIds');
+
+      for (final deletedId in deletedIds) {
+        print('🗑️ Removing from SQLite: $deletedId');
+        await _db.deleteTransaction(deletedId);
+      }
+
+      // Save all API expenses to SQLite
       for (final expense in apiExpenses) {
-        // Extract category name safely
+        print('📦 Processing: $expense');
+
+        // Extract category
         String categoryName = 'Other';
         final cat = expense['category'];
         if (cat is Map) {
-          categoryName = cat['name']?.toString() ?? 'Other';
+          final catId = cat['id'];
+          final catName = cat['name']?.toString() ?? '';
+          categoryName = _mapSspCategory(catName, catId);
         } else if (cat is String && cat.isNotEmpty) {
-          categoryName = cat;
+          categoryName = _mapSspCategory(cat, null);
+        } else {
+          final catId = expense['category_id'];
+          if (catId != null) {
+            categoryName = _getCategoryNameFromId(
+              int.tryParse(catId.toString()) ?? 0,
+            );
+          }
         }
 
-        // Parse amount safely
+        // Parse amount
         double amount = 0.0;
         final rawAmount = expense['amount'];
         if (rawAmount is num) {
           amount = rawAmount.toDouble();
         } else if (rawAmount is String) {
-          amount = double.tryParse(rawAmount) ?? 0.0;
+          final cleaned =
+          rawAmount.replaceAll(RegExp(r'[^0-9.]'), '');
+          amount = double.tryParse(cleaned) ?? 0.0;
         }
 
         // Parse type
+        String type = 'expense';
         final rawType =
             expense['type']?.toString().toLowerCase() ?? '';
-        final type = rawType == 'income' ? 'income' : 'expense';
+        if (rawType == 'income') type = 'income';
 
-        // Parse date — use expense_date first
+        // Parse date
         String date = '';
         final rawDate = expense['expense_date'] ??
             expense['date'] ??
-            expense['created_at'];
+            expense['created_at'] ??
+            expense['updated_at'];
         if (rawDate is String && rawDate.isNotEmpty) {
-          date = rawDate.length > 10
-              ? rawDate.substring(0, 10)
-              : rawDate;
+          date = _parseSspDate(rawDate);
         }
 
+        // Parse note
+        String? note;
+        if (expense['note'] != null &&
+            expense['note'].toString().isNotEmpty) {
+          note = expense['note'].toString();
+        } else if (expense['title'] != null &&
+            expense['title'].toString().isNotEmpty) {
+          note = expense['title'].toString();
+        }
+
+        final serverId =
+            expense['id']?.toString() ?? _uuid.v4();
+        final transactionId = 'ssp_$serverId';
+
+        print(
+          '✅ Saving: $transactionId | $categoryName | $amount | $type | $date',
+        );
+
         final transaction = TransactionModel(
-          // FIX: Store as ssp_{server_id} so we know it's a server record
-          id: 'ssp_${expense['id']?.toString() ?? _uuid.v4()}',
+          id: transactionId,
           userId: userId,
           type: type,
           category: categoryName,
           amount: amount,
           date: date,
-          note: expense['note']?.toString() ??
-              expense['title']?.toString(),
+          note: note,
           currency: 'LKR',
           isSynced: true,
         );
 
         await _db.insertTransaction(transaction);
       }
+
+      print(
+        '✅ All ${apiExpenses.length} expenses saved to SQLite',
+      );
+
       await loadTransactions(userId);
     } catch (e) {
+      print('❌ API load error: $e');
       debugPrint('API load failed: $e');
     }
+  }
+
+  // ── Parse SSP date "25 May 2026" → "2026-05-25" ─────────────
+  String _parseSspDate(String rawDate) {
+    try {
+      final cleanDate = rawDate.split(',')[0].trim();
+
+      if (cleanDate.contains('-') && cleanDate.length == 10) {
+        return cleanDate;
+      }
+
+      final parts = cleanDate.split(' ');
+      if (parts.length == 3) {
+        const months = {
+          'Jan': '01', 'Feb': '02', 'Mar': '03',
+          'Apr': '04', 'May': '05', 'Jun': '06',
+          'Jul': '07', 'Aug': '08', 'Sep': '09',
+          'Oct': '10', 'Nov': '11', 'Dec': '12',
+        };
+        final day = parts[0].padLeft(2, '0');
+        final month = months[parts[1]] ?? '01';
+        final year = parts[2];
+        return '$year-$month-$day';
+      }
+
+      if (rawDate.length > 10) return rawDate.substring(0, 10);
+      return rawDate;
+    } catch (e) {
+      return rawDate.length > 10
+          ? rawDate.substring(0, 10)
+          : rawDate;
+    }
+  }
+
+  // ── Map SSP category names to Flutter names ──────────────────
+  String _mapSspCategory(String sspName, dynamic catId) {
+    const nameMap = {
+      'Food': 'Food & Drinks',
+      'food': 'Food & Drinks',
+      'Food & Drinks': 'Food & Drinks',
+      'Transport': 'Transport',
+      'transport': 'Transport',
+      'Shopping': 'Shopping',
+      'shopping': 'Shopping',
+      'Bills': 'Bills',
+      'bills': 'Bills',
+      'Health': 'Health',
+      'health': 'Health',
+      'Medical': 'Health',
+      'medical': 'Health',
+      'Entertainment': 'Entertainment',
+      'entertainment': 'Entertainment',
+      'Education': 'Education',
+      'education': 'Education',
+      'Salary': 'Salary',
+      'salary': 'Salary',
+      'Freelance': 'Freelance',
+      'freelance': 'Freelance',
+      'Rent': 'Bills',
+      'rent': 'Bills',
+      'Other': 'Other',
+      'other': 'Other',
+    };
+
+    if (nameMap.containsKey(sspName)) {
+      return nameMap[sspName]!;
+    }
+
+    if (catId != null) {
+      return _getCategoryNameFromId(
+        int.tryParse(catId.toString()) ?? 0,
+      );
+    }
+
+    return 'Other';
+  }
+
+  // ── Map category_id to Flutter name ─────────────────────────
+  String _getCategoryNameFromId(int id) {
+    const idToName = {
+      1: 'Food & Drinks',
+      2: 'Transport',
+      3: 'Bills',
+      4: 'Shopping',
+      5: 'Health',
+      6: 'Education',
+      7: 'Entertainment',
+      8: 'Salary',
+      9: 'Freelance',
+      10: 'Other',
+      11: 'Bills',
+      12: 'Health',
+    };
+    return idToName[id] ?? 'Other';
   }
 
   // ── Add transaction ──────────────────────────────────────────
@@ -204,7 +364,7 @@ class TransactionProvider extends ChangeNotifier {
       final isOnline = connectivity != ConnectivityResult.none;
 
       final transaction = TransactionModel(
-        id: _uuid.v4(), // Local UUID until server assigns ID
+        id: _uuid.v4(),
         userId: userId,
         type: type,
         category: category,
@@ -215,18 +375,15 @@ class TransactionProvider extends ChangeNotifier {
         latitude: latitude,
         longitude: longitude,
         currency: currency,
-        isSynced: false, // Not synced yet
+        isSynced: false,
       );
 
-      // Step 1: Save to SQLite immediately
       await _db.insertTransaction(transaction);
 
-      // Step 2: Update UI instantly
       _transactions.insert(0, transaction);
       _transactions.sort((a, b) => b.date.compareTo(a.date));
       notifyListeners();
 
-      // Step 3: Sync to API if online
       if (isOnline) {
         await _createOnApi(transaction);
       } else {
@@ -246,10 +403,8 @@ class TransactionProvider extends ChangeNotifier {
     try {
       _errorMessage = null;
 
-      // Step 1: Update SQLite
       await _db.updateTransaction(transaction);
 
-      // Step 2: Update UI
       final index =
       _transactions.indexWhere((t) => t.id == transaction.id);
       if (index != -1) {
@@ -258,15 +413,12 @@ class TransactionProvider extends ChangeNotifier {
         notifyListeners();
       }
 
-      // Step 3: Sync to API
       final connectivity = await Connectivity().checkConnectivity();
       if (connectivity != ConnectivityResult.none) {
         if (transaction.id.startsWith('ssp_')) {
-          // FIX: Has server ID → use PUT to UPDATE existing record
           print('UPDATE ID: ${transaction.id}');
           await _updateOnApi(transaction);
         } else {
-          // FIX: No server ID → use POST to CREATE on server
           print('CREATE ON SERVER (local): ${transaction.id}');
           await _createOnApi(transaction);
         }
@@ -289,12 +441,9 @@ class TransactionProvider extends ChangeNotifier {
       final connectivity = await Connectivity().checkConnectivity();
       final isOnline = connectivity != ConnectivityResult.none;
 
-      // FIX: Always try API delete if online AND has server ID
       if (isOnline && id.startsWith('ssp_')) {
-        // Strip ssp_ prefix to get real server numeric ID
         final serverId = id.replaceFirst('ssp_', '');
         print('DELETE SERVER ID: $serverId');
-
         final success = await _sspApi.deleteExpense(serverId);
         print(
           'DELETE STATUS: ${success ? '✅ success' : '❌ failed'}',
@@ -305,7 +454,6 @@ class TransactionProvider extends ChangeNotifier {
         print('DELETE OFFLINE — SQLite only');
       }
 
-      // Always delete from SQLite
       await _db.deleteTransaction(id);
       _transactions.removeWhere((t) => t.id == id);
       notifyListeners();
@@ -319,7 +467,7 @@ class TransactionProvider extends ChangeNotifier {
     }
   }
 
-  // ── Create on API (POST /api/expenses) ───────────────────────
+  // ── Create on API (POST) ─────────────────────────────────────
   Future<void> _createOnApi(TransactionModel t) async {
     try {
       final payload = _buildPayload(t);
@@ -329,8 +477,6 @@ class TransactionProvider extends ChangeNotifier {
       print('📥 CREATE RESULT: $result');
 
       if (result['success'] == true) {
-        // FIX: Extract server ID and update local record
-        // This ensures future edits/deletes use the correct server ID
         final responseData =
             result['data']?['data'] ?? result['data'];
 
@@ -338,10 +484,8 @@ class TransactionProvider extends ChangeNotifier {
           final newId = 'ssp_${responseData['id']}';
           print('✅ Server ID assigned: $newId');
 
-          // Update ID in SQLite
           await _db.updateTransactionId(t.id, newId);
 
-          // Update in memory
           final index =
           _transactions.indexWhere((item) => item.id == t.id);
           if (index != -1) {
@@ -362,14 +506,13 @@ class TransactionProvider extends ChangeNotifier {
     }
   }
 
-  // ── Update on API (PUT /api/expenses/{id}) ───────────────────
+  // ── Update on API (PUT) ──────────────────────────────────────
   Future<void> _updateOnApi(TransactionModel t) async {
     try {
       final payload = _buildPayload(t);
       print('📤 UPDATE ID: ${t.id}');
       print('📤 UPDATE PAYLOAD: $payload');
 
-      // FIX: Pass full ID — updateExpense() strips ssp_ prefix
       final result = await _sspApi.updateExpense(t.id, payload);
       print('📥 UPDATE RESULT: $result');
 
@@ -378,7 +521,6 @@ class TransactionProvider extends ChangeNotifier {
         _updateMemorySync(t.id, true);
         print('✅ Updated on server: ${t.category}');
       } else if (result['message'] == 'not_found') {
-        // FIX: Record not found on server — create it instead
         print('⚠️ Not found on server — creating...');
         await _createOnApi(t);
       } else {
@@ -389,8 +531,7 @@ class TransactionProvider extends ChangeNotifier {
     }
   }
 
-  // ── Build payload for Laravel API ───────────────────────────
-  // FIX: Must match exactly what Laravel store()/update() expects
+  // ── Build API payload ────────────────────────────────────────
   Map<String, dynamic> _buildPayload(TransactionModel t) {
     return {
       'title': (t.note != null && t.note!.isNotEmpty)
@@ -398,9 +539,7 @@ class TransactionProvider extends ChangeNotifier {
           : t.category,
       'amount': t.amount,
       'type': t.type,
-      // FIX: Laravel expects category_id (integer) not category name
       'category_id': _getCategoryId(t.category),
-      // FIX: Laravel expects expense_date not date
       'expense_date': t.date,
       'note': t.note ?? '',
     };
@@ -416,7 +555,7 @@ class TransactionProvider extends ChangeNotifier {
     }
   }
 
-  // ── Auto sync all pending when internet returns ──────────────
+  // ── Auto sync pending when internet returns ──────────────────
   Future<void> _syncPendingTransactions() async {
     if (_isSyncing || _transactions.isEmpty) return;
     _isSyncing = true;
@@ -435,10 +574,8 @@ class TransactionProvider extends ChangeNotifier {
 
       for (final t in pending) {
         if (t.id.startsWith('ssp_')) {
-          // Has server ID — update
           await _updateOnApi(t);
         } else {
-          // No server ID — create
           await _createOnApi(t);
         }
         await Future.delayed(const Duration(milliseconds: 300));
@@ -452,16 +589,16 @@ class TransactionProvider extends ChangeNotifier {
     }
   }
 
-  // ── Category name → Laravel category_id ─────────────────────
+  // ── Category name → SSP category_id ─────────────────────────
   int _getCategoryId(String categoryName) {
     const categoryMap = {
       'Food & Drinks': 1,
       'Transport': 2,
-      'Shopping': 3,
-      'Bills': 4,
+      'Bills': 3,
+      'Shopping': 4,
       'Health': 5,
-      'Entertainment': 6,
-      'Education': 7,
+      'Education': 6,
+      'Entertainment': 7,
       'Salary': 8,
       'Freelance': 9,
       'Other': 10,

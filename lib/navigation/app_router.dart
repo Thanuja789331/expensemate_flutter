@@ -23,7 +23,7 @@ class AppRouter {
       redirect: (context, state) {
         final status = authProvider.status;
         final location = state.matchedLocation;
-        
+
         print('🚦 Router Redirect Check - Status: $status, Target: $location');
 
         // Logic check: Only redirect IF the status is explicitly unauthenticated

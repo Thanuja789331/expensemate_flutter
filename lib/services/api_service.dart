@@ -72,48 +72,53 @@ class ApiService {
         return await getLocalTips();
       }
 
-      // Mocking external financial tips API since jsonplaceholder is dummy
-      // In a real app, this would be a real financial tips endpoint
-      await Future.delayed(const Duration(seconds: 1)); // Simulate network lag
-      
-      return [
-        {
-          'id': 'ext_1',
-          'title': 'Invest in Your Financial Literacy',
-          'description': 'The best investment you can make is in yourself. Read books, take courses, and stay informed about market trends and personal finance strategies.',
-          'source': 'External API'
-        },
-        {
-          'id': 'ext_2',
-          'title': 'Understand Compound Interest',
-          'description': 'Einstein called compound interest the eighth wonder of the world. Starting to save and invest early allows your money to grow exponentially over time.',
-          'source': 'External API'
-        },
-        {
-          'id': 'ext_3',
-          'title': 'Avoid Lifestyle Creep',
-          'description': 'As your income increases, resist the urge to increase your spending at the same rate. Keep your expenses stable and invest the difference.',
-          'source': 'External API'
-        },
-        {
-          'id': 'ext_4',
-          'title': 'Diversify Your Investments',
-          'description': 'Don\'t put all your eggs in one basket. Spreading your investments across different asset classes like stocks, bonds, and real estate reduces risk.',
-          'source': 'External API'
-        },
-        {
-          'id': 'ext_5',
-          'title': 'Set S.M.A.R.T Financial Goals',
-          'description': 'Specific, Measurable, Achievable, Relevant, and Time-bound goals give you a clear roadmap and motivation to save.',
-          'source': 'External API'
-        },
-        {
-          'id': 'ext_6',
-          'title': 'Plan for Retirement Now',
-          'description': 'It\'s never too early to start planning for retirement. Even small contributions today can lead to a comfortable future thanks to long-term growth.',
-          'source': 'External API'
-        }
-      ];
+      final response = await http
+          .get(Uri.parse(_tipsUrl))
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+
+        const financeTitles = [
+          'Smart Budgeting Strategies',
+          'Build an Emergency Fund',
+          'Understanding Compound Interest',
+          'Reduce Unnecessary Spending',
+          'Long-Term Investment Planning',
+          'Diversify Your Investments',
+          'Retirement Planning Basics',
+          'Financial Goal Setting',
+          'Managing Monthly Expenses',
+          'Saving for Future Needs',
+        ];
+
+        const financeDescriptions = [
+          'Create a monthly budget and track your expenses regularly to improve financial stability.',
+          'Build an emergency fund that can cover at least 3 to 6 months of essential expenses.',
+          'Learn how compound interest can help grow your savings and investments over time.',
+          'Identify unnecessary spending habits and redirect that money toward savings goals.',
+          'Plan your investments with a long-term perspective to achieve financial growth.',
+          'Diversify your investments to reduce risk and improve portfolio performance.',
+          'Start retirement planning early to benefit from long-term compounding.',
+          'Set realistic financial goals and monitor your progress consistently.',
+          'Review your monthly expenses and look for opportunities to save money.',
+          'Develop saving habits that support future financial security.',
+        ];
+
+        return List.generate(data.length, (index) {
+          final item = data[index];
+
+          return {
+            'id': item['id'].toString(),
+            'title': financeTitles[index % financeTitles.length],
+            'description':
+            financeDescriptions[index % financeDescriptions.length],
+            'source': 'External JSON API',
+          };
+        });
+      } else {
+        return await getLocalTips();
+      }
     } catch (e) {
       return await getLocalTips();
     }

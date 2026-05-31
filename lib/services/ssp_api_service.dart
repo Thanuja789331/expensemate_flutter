@@ -222,16 +222,56 @@ class SspApiService {
       )
           .timeout(const Duration(seconds: 15));
 
+      print('📥 GET EXPENSES STATUS: ${response.statusCode}');
+      print('📥 GET EXPENSES BODY: ${response.body}');
+
+      if (_isHtml(response.body)) {
+        print('❌ HTML response — token invalid');
+        return [];
+      }
+
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        if (data is List) return data.cast<Map<String, dynamic>>();
-        if (data['data'] != null) {
-          return (data['data'] as List)
-              .cast<Map<String, dynamic>>();
+
+        // FIX: Handle all possible response formats
+        if (data is List) {
+          print('✅ Got ${data.length} expenses (array format)');
+          return data.cast<Map<String, dynamic>>();
         }
+
+        if (data is Map) {
+          // Format: {"data": [...]}
+          if (data['data'] is List) {
+            final list = data['data'] as List;
+            print('✅ Got ${list.length} expenses (data key format)');
+            return list.cast<Map<String, dynamic>>();
+          }
+
+          // Format: {"expenses": [...]}
+          if (data['expenses'] is List) {
+            final list = data['expenses'] as List;
+            print('✅ Got ${list.length} expenses (expenses key)');
+            return list.cast<Map<String, dynamic>>();
+          }
+
+          // FIX: Handle paginated response
+          // Format: {"current_page": 1, "data": [...]}
+          if (data['current_page'] != null && data['data'] is List) {
+            final list = data['data'] as List;
+            print('✅ Got ${list.length} expenses (paginated)');
+            return list.cast<Map<String, dynamic>>();
+          }
+        }
+
+        print('⚠️ Unexpected response format: ${data.runtimeType}');
+        print('Response: $data');
+        return [];
       }
+
+      print('❌ GET EXPENSES FAILED: ${response.statusCode}');
       return [];
     } catch (e) {
+      print('❌ GET EXPENSES ERROR: $e');
       return [];
     }
   }

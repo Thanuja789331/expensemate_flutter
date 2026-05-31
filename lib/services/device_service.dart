@@ -4,11 +4,12 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
 // --- DEVICE SERVICE ---
-// This class acts as a bridge between Flutter and the Phone's Hardware.
-// We use it for Camera, GPS, Battery, and Sensors.
+// Bridge between Flutter and Phone Hardware.
+// Handles Camera, GPS, Battery, Sensors, Biometrics.
 class DeviceService {
   static final DeviceService _instance = DeviceService._internal();
   factory DeviceService() => _instance;
@@ -19,74 +20,156 @@ class DeviceService {
   final ImagePicker _imagePicker = ImagePicker();
   final LocalAuthentication _localAuth = LocalAuthentication();
 
-  // --- CAMERA & GALLERY ---
-  
-  // Open phone camera to take a photo of a receipt
+  // ── CAMERA ───────────────────────────────────────────────────
+  // FIX: Request camera permission before opening camera
+  // Viva: Permission handling is required for Android 6.0+
   Future<String?> pickImageFromCamera() async {
     try {
+      // Request camera permission at runtime
+      final status = await Permission.camera.request();
+
+      if (status.isDenied) {
+        print('❌ Camera permission denied');
+        return null;
+      }
+
+      if (status.isPermanentlyDenied) {
+        // User selected "Never ask again" — must go to settings
+        print('❌ Camera permanently denied — opening settings');
+        await openAppSettings();
+        return null;
+      }
+
+      // Permission granted — open camera
       final XFile? photo = await _imagePicker.pickImage(
         source: ImageSource.camera,
-        imageQuality: 70, // Compressing image to save space
+        imageQuality: 70, // Compress to save space
       );
       return photo?.path;
     } catch (e) {
+      print('❌ Camera error: $e');
       return null;
     }
   }
 
-  // Pick receipt from the phone gallery
+  // FIX: Request storage/photos permission before gallery
   Future<String?> pickImageFromGallery() async {
     try {
+      // Android 13+ uses READ_MEDIA_IMAGES (Permission.photos)
+      // Android 12 and below uses READ_EXTERNAL_STORAGE
+      PermissionStatus status = await Permission.photos.request();
+
+      if (status.isDenied) {
+        // Fallback for older Android versions
+        status = await Permission.storage.request();
+      }
+
+      if (status.isDenied) {
+        print('❌ Storage permission denied');
+        return null;
+      }
+
+      if (status.isPermanentlyDenied) {
+        print('❌ Storage permanently denied — opening settings');
+        await openAppSettings();
+        return null;
+      }
+
+      // Permission granted — open gallery
       final XFile? image = await _imagePicker.pickImage(
         source: ImageSource.gallery,
         imageQuality: 70,
       );
       return image?.path;
     } catch (e) {
+      print('❌ Gallery error: $e');
       return null;
     }
   }
 
-  // --- GPS / LOCATION ---
-
-  // Get current GPS coordinates (Viva: Mention Permission Handling)
+  // ── GPS LOCATION ─────────────────────────────────────────────
+  // Viva: Geolocator handles its own permission flow
   Future<Position?> getCurrentLocation() async {
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) return null;
-
-      // Ask for permission if not already granted
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) return null;
+      // Check if location service is enabled on device
+      bool serviceEnabled =
+      await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        print('❌ Location services disabled on device');
+        return null;
       }
-      
-      return await Geolocator.getCurrentPosition(
+
+      // Check current permission status
+      LocationPermission permission =
+      await Geolocator.checkPermission();
+
+      if (permission == LocationPermission.denied) {
+        // Request permission from user
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          print('❌ Location permission denied by user');
+          return null;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        // Must open app settings
+        print('❌ Location permanently denied — opening settings');
+        await Geolocator.openAppSettings();
+        return null;
+      }
+
+      // Permission granted — get GPS coordinates
+      print('✅ Location permission granted — fetching position...');
+      final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
       );
+      print(
+        '✅ Got location: ${position.latitude}, ${position.longitude}',
+      );
+      return position;
     } catch (e) {
+      print('❌ Location error: $e');
       return null;
     }
   }
 
+  // Format GPS coordinates for display
   String formatLocation(double? lat, double? lng) {
     if (lat == null || lng == null) return 'No location';
     return '${lat.toStringAsFixed(4)}, ${lng.toStringAsFixed(4)}';
   }
 
-  // --- BATTERY & NETWORK ---
-
-  Future<int> getBatteryLevel() async => await _battery.batteryLevel;
-  Future<BatteryState> getBatteryState() async => await _battery.batteryState;
-
-  // Check if phone has active Wifi or Mobile Data
-  Future<bool> isOnline() async {
-    final result = await _connectivity.checkConnectivity();
-    return result != ConnectivityResult.none;
+  // ── BATTERY ──────────────────────────────────────────────────
+  Future<int> getBatteryLevel() async {
+    try {
+      return await _battery.batteryLevel;
+    } catch (e) {
+      return 0;
+    }
   }
 
-  // Stream for network connectivity changes
+  Future<BatteryState> getBatteryState() async {
+    try {
+      return await _battery.batteryState;
+    } catch (e) {
+      return BatteryState.unknown;
+    }
+  }
+
+  // ── CONNECTIVITY ─────────────────────────────────────────────
+  // Check if phone has active WiFi or Mobile Data
+  Future<bool> isOnline() async {
+    try {
+      final result = await _connectivity.checkConnectivity();
+      return result != ConnectivityResult.none;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Stream for real-time network changes
   Stream<ConnectivityResult> get connectivityStream =>
       _connectivity.onConnectivityChanged.map(
             (results) => results.isNotEmpty
@@ -94,30 +177,36 @@ class DeviceService {
             : ConnectivityResult.none,
       );
 
-  // --- SENSORS (ACCELEROMETER & GYROSCOPE) ---
+  // ── SENSORS ──────────────────────────────────────────────────
+  // Raw accelerometer stream for live display
+  Stream<AccelerometerEvent> get accelerometerStream =>
+      accelerometerEventStream();
 
-  // Raw streams for the Sensors screen
-  Stream<AccelerometerEvent> get accelerometerStream => accelerometerEventStream();
-  Stream<GyroscopeEvent> get gyroscopeStream => gyroscopeEventStream();
+  // Raw gyroscope stream
+  Stream<GyroscopeEvent> get gyroscopeStream =>
+      gyroscopeEventStream();
 
-  // Logic to turn gyroscope values into a human-readable tilt description
+  // Convert gyroscope values to human-readable tilt
   String getGyroscopeTilt(double x, double y, double z) {
     if (x.abs() > y.abs() && x.abs() > z.abs()) {
       return x > 0 ? 'Tilting Forward' : 'Tilting Backward';
     } else if (y.abs() > x.abs() && y.abs() > z.abs()) {
       return y > 0 ? 'Tilting Right' : 'Tilting Left';
     } else {
-      return z > 0 ? 'Rotating Clockwise' : 'Rotating Counter-clockwise';
+      return z > 0
+          ? 'Rotating Clockwise'
+          : 'Rotating Counter-clockwise';
     }
   }
 
-  // Detects if the user shakes the phone (Threshold: 15.0)
+  // Shake detection — threshold 15.0 m/s²
+  // Viva: Calculate delta between readings on all 3 axes
   Stream<bool> get shakeStream {
     double lastX = 0, lastY = 0, lastZ = 0;
     const double shakeThreshold = 15.0;
 
     return accelerometerEventStream().map((event) {
-      // Calculate change in motion on all 3 axes
+      // Calculate change in motion on each axis
       double deltaX = (event.x - lastX).abs();
       double deltaY = (event.y - lastY).abs();
       double deltaZ = (event.z - lastZ).abs();
@@ -126,18 +215,23 @@ class DeviceService {
       lastY = event.y;
       lastZ = event.z;
 
+      // If total change exceeds threshold — shake detected
       return (deltaX + deltaY + deltaZ) > shakeThreshold;
     }).where((isShaking) => isShaking);
   }
 
-  // --- BIOMETRICS ---
-
-  // Check if phone has fingerprint or face unlock hardware
+  // ── BIOMETRICS ───────────────────────────────────────────────
+  // Check if fingerprint/face hardware exists
   Future<bool> isBiometricAvailable() async {
-    return await _localAuth.canCheckBiometrics && await _localAuth.isDeviceSupported();
+    try {
+      return await _localAuth.canCheckBiometrics &&
+          await _localAuth.isDeviceSupported();
+    } catch (e) {
+      return false;
+    }
   }
 
-  // List what biometrics the phone supports (Face, Fingerprint, etc)
+  // List supported biometric types
   Future<List<BiometricType>> getAvailableBiometrics() async {
     try {
       return await _localAuth.getAvailableBiometrics();
@@ -146,14 +240,19 @@ class DeviceService {
     }
   }
 
-  // Trigger the system biometric popup
+  // Show biometric authentication dialog
   Future<bool> authenticateWithBiometric() async {
     try {
       return await _localAuth.authenticate(
         localizedReason: 'Scan fingerprint to unlock ExpenseMate',
-        options: const AuthenticationOptions(stickyAuth: true),
+        options: const AuthenticationOptions(
+          stickyAuth: true,
+          biometricOnly: false, // Allow PIN fallback
+          useErrorDialogs: true,
+        ),
       );
     } catch (e) {
+      print('❌ Biometric error: $e');
       return false;
     }
   }

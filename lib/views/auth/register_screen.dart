@@ -86,10 +86,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 children: [
 
                   // ── Logo & Title ───────────────────────────
-                  const Icon(
-                    Icons.account_balance_wallet,
-                    size: 64,
-                    color: Colors.white,
+                  Image.asset(
+                    'assets/images/app_logo.png',
+                    width: 80,
+                    height: 80,
                   )
                       .animate()
                       .fadeIn(duration: 600.ms)

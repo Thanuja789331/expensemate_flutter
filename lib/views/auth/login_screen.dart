@@ -84,10 +84,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 children: [
 
                   // ── App Logo ─────────────────────────────
-                  const Icon(
-                    Icons.account_balance_wallet,
-                    size: 80,
-                    color: Colors.white,
+                  Image.asset(
+                    'assets/images/app_logo.png',
+                    width: 100,
+                    height: 100,
                   )
                       .animate()
                       .fadeIn(duration: 600.ms)

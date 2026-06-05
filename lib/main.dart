@@ -168,7 +168,11 @@ class _BiometricLockScreenState extends State<BiometricLockScreen>
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.lock_outline, size: 80, color: Colors.white),
+                            Image.asset(
+                              'assets/images/app_logo.png',
+                              width: 100,
+                              height: 100,
+                            ),
                             const SizedBox(height: 24),
                             const Text('ExpenseMate Secured', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white)),
                             const SizedBox(height: 60),
